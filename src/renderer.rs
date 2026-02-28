@@ -94,9 +94,9 @@ impl Renderer {
     ) {
         // Вычисляем размер текстуры
         let (width, height) = if let Some(buf) = grids.buffers.get(buffer) {
-            if let Some(atlas) = grids.atlases.get(buf.atlas()) {
-                let w = buf.w * atlas.config.tile_width + padding * 2;
-                let h = buf.h * atlas.config.tile_height + padding * 2;
+            if let Some(gs) = grids.glyphsets.get(buf.glyphset()) {
+                let w = buf.w * gs.tile_w + padding * 2;
+                let h = buf.h * gs.tile_h + padding * 2;
                 (w as i32, h as i32)
             } else {
                 return;
@@ -283,13 +283,13 @@ impl Renderer {
         
         if !buffer.visible { return; }
         
-        let atlas = match grids.atlases.get(buffer.atlas()) {
-            Some(a) => a,
+        let gs = match grids.glyphsets.get(buffer.glyphset()) {
+            Some(g) => g,
             None => return,
         };
         
-        let tile_w = atlas.config.tile_width as i32;
-        let tile_h = atlas.config.tile_height as i32;
+        let tile_w = gs.tile_w as i32;
+        let tile_h = gs.tile_h as i32;
         
         if self.buffer_shaders.contains_key(&buffer_key) {
             result.push((buffer_key, screen_x, screen_y));
@@ -358,14 +358,14 @@ impl Renderer {
         
         if !buffer.visible { return; }
         
-        let atlas = match grids.atlases.get(buffer.atlas()) {
-            Some(a) => a,
+        let glyphset = match grids.glyphsets.get(buffer.glyphset()) {
+            Some(g) => g,
             None => return,
         };
         
         let effective_opacity = opacity * buffer.opacity;
-        let tile_w = atlas.config.tile_width as f32;
-        let tile_h = atlas.config.tile_height as f32;
+        let tile_w = glyphset.tile_w as f32;
+        let tile_h = glyphset.tile_h as f32;
         
         let mut current_blend: Option<Blend> = None;
         
@@ -378,7 +378,17 @@ impl Renderer {
                     let fg_with_opacity = Color::new(ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, (ch.fcolor.a as f32 * effective_opacity) as u8);
                     let bg_with_opacity = Color::new(ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, (ch.bcolor.a as f32 * effective_opacity) as u8);
                     
-                    let (src, _, _) = atlas.get_glyph_source(ch.glyph);
+                    // Resolve global_id from LUT
+                    let global_id = glyphset.luts.get(ch.variant_id as usize)
+                        .and_then(|lut: &Vec<u32>| lut.get(ch.code as usize))
+                        .copied()
+                        .unwrap_or(glyphset.default_global_id);
+
+                    // Get physical glyph from registry
+                    let (atlas_key, physical_glyph) = grids.global_registry.entries[global_id as usize];
+                    let atlas = &grids.atlases[atlas_key];
+                    let (src, _, _) = atlas.get_glyph_source(physical_glyph);
+
                     let transformed_src = ch.transform.apply_to_src(src);
                     let rotation = ch.transform.rotation.degrees();
                     
@@ -440,14 +450,14 @@ impl Renderer {
         
         if !buffer.visible { return; }
         
-        let atlas = match grids.atlases.get(buffer.atlas()) {
-            Some(a) => a,
+        let gs = match grids.glyphsets.get(buffer.glyphset()) {
+            Some(g) => g,
             None => return,
         };
         
         let effective_opacity = parent_opacity * buffer.opacity;
-        let tile_w = atlas.config.tile_width as f32;
-        let tile_h = atlas.config.tile_height as f32;
+        let tile_w = gs.tile_w as f32;
+        let tile_h = gs.tile_h as f32;
         
         if !self.buffer_shaders.contains_key(&buffer_key) {
             self.draw_single_buffer(d, grids, buffer_key, screen_x, screen_y, effective_opacity);

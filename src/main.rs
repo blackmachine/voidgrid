@@ -3,7 +3,7 @@ use raylib::prelude::*;
 
 // Используем модули из нашей библиотеки (предполагаем имя крейта "grids")
 use grids::VoidGrid;
-use grids::types::Character;
+use grids::types::{Character, GlyphsetKey};
 use grids::text_ops::TextOps;
 use grids::input::{WindowChrome, DropZone};
 
@@ -42,8 +42,12 @@ fn main() {
     let huge = vg.grids.load_atlas(&mut rl, &thread, "assets/huge.json")
         .expect("Failed to load huge atlas");
 
-    // Получаем размер тайла
-    let (tile_w, tile_h) = vg.grids.tile_size(crt).unwrap();
+    // Создаем Glyphsets (предполагаем наличие хелпера для создания из атласа)
+    let crt_gs = vg.grids.create_glyphset_from_atlas("crt", crt);
+    let huge_gs = vg.grids.create_glyphset_from_atlas("huge", huge);
+
+    // Получаем размер тайла (теперь из Glyphset)
+    let (tile_w, tile_h) = vg.grids.glyphset_size(crt_gs).unwrap();
     
     // Корректируем размер окна
     let window_w = buf_w * tile_w;
@@ -61,16 +65,16 @@ fn main() {
     // Создаём буферы
     // ========================================================================
     
-    let main_buf = vg.grids.create_buffer("main", buf_w, buf_h, crt);
-    let back_buf = vg.grids.create_buffer("back", buf_w/4, buf_h/4, huge);
+    let main_buf = vg.grids.create_buffer("main", buf_w, buf_h, crt_gs);
+    let back_buf = vg.grids.create_buffer("back", buf_w/4, buf_h/4, huge_gs);
     vg.grids.set_buffer_z(back_buf, -1);
     vg.grids.set_buffer_z(main_buf, 1);
     
     // Drop zone буфер (маленький, внизу)
-    let drop_zone_buf = vg.grids.create_buffer("drop_zone", 40, 1, crt);
+    let drop_zone_buf = vg.grids.create_buffer("drop_zone", 40, 1, crt_gs);
     
     // Буфер с шейдером chromatic aberration
-    let shader_demo_buf = vg.grids.create_buffer("shader_demo", 40, 1, crt);
+    let shader_demo_buf = vg.grids.create_buffer("shader_demo", 40, 1, crt_gs);
     vg.renderer.set_buffer_shader_padded(&mut rl, &thread, &vg.grids, shader_demo_buf, chromatic_shader, 4);
 
     // Привязываем дочерние буферы
@@ -104,8 +108,8 @@ fn main() {
         
         // --- Проверка resize и обновление буфера ---
         if let Some((new_w, new_h)) = chrome.check_resize(&rl) {
-            let new_buf_w = (new_w as u32) / tile_w;
-            let new_buf_h = (new_h as u32) / tile_h;
+            let new_buf_w: u32 = (new_w as u32) / tile_w;
+            let new_buf_h: u32 = (new_h as u32) / tile_h;
             
             if new_buf_w != buf_w || new_buf_h != buf_h {
                 buf_w = new_buf_w.max(1);
@@ -154,7 +158,8 @@ fn main() {
         let ry = rand::rng().random_range(0..8);
         let ch = rand::rng().random_range(0..=15);
         let alpha = rand::rng().random_range(0..=32);
-        vg.grids.set_char(back_buf, rx, ry, Character::new(ch, Color::new(0, 255, 0, alpha), Color::BLANK));
+        // Character::new теперь принимает (code, variant_id, fg, bg)
+        vg.grids.set_char(back_buf, rx, ry, Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK));
 
         // --- Drop zone буфер ---
         {

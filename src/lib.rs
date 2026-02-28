@@ -8,6 +8,8 @@ pub mod grids;
 pub mod renderer;
 pub mod text_ops;
 pub mod input;
+pub mod global_registry;
+pub mod glyphset;
 
 use raylib::prelude::*;
 use grids::Grids;

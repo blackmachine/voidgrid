@@ -28,6 +28,8 @@ use crate::buffer::{Buffer, Attachment, OrphanedChild};
 use crate::palette::Palette;
 use crate::shader::{ShaderData, UniformValue};
 use crate::assets::{self, AssetCache};
+use crate::global_registry::GlobalGlyphRegistry;
+use crate::glyphset::Glyphset;
 
 // ============================================================================
 // Grids - главная структура
@@ -39,11 +41,13 @@ const MAX_BUFFER_DEPTH: u8 = 8;
 /// Главная структура управления буферами, атласами и палитрами
 pub struct Grids {
     pub(crate) atlases: SlotMap<AtlasKey, Atlas>,
+    pub(crate) glyphsets: SlotMap<GlyphsetKey, Glyphset>,
     pub(crate) buffers: SlotMap<BufferKey, Buffer>,
     palettes: SlotMap<PaletteKey, Palette>,
     pub(crate) shaders: SlotMap<ShaderKey, ShaderData>,
     /// Связи родитель-потомок (вынесены из Buffer)
     pub(crate) attachments: Vec<Attachment>,
+    pub global_registry: GlobalGlyphRegistry,
     
     // Post-process
     pub(crate) post_process_shader: Option<ShaderKey>,
@@ -57,10 +61,12 @@ impl Grids {
     pub fn new() -> Self {
         Self {
             atlases: SlotMap::with_key(),
+            glyphsets: SlotMap::with_key(),
             buffers: SlotMap::with_key(),
             palettes: SlotMap::with_key(),
             shaders: SlotMap::with_key(),
             attachments: Vec::new(),
+            global_registry: GlobalGlyphRegistry::new(),
             post_process_shader: None,
             cache: AssetCache::new(),
         }
@@ -212,6 +218,56 @@ impl Grids {
     }
     
     // ========================================================================
+    // Glyphsets
+    // ========================================================================
+
+    pub fn create_glyphset_from_atlas(&mut self, name: &str, atlas_key: AtlasKey) -> GlyphsetKey {
+        let atlas = self.atlases.get(atlas_key).expect("Atlas not found");
+        let tile_w = atlas.config.tile_width;
+        let tile_h = atlas.config.tile_height;
+        let default_glyph = atlas.config.default_glyph;
+        
+        // Register default glyph
+        let default_global_id = self.global_registry.register_glyph(atlas_key, default_glyph);
+        
+        let mut glyphset = Glyphset::new(name.to_string(), tile_w, tile_h, default_global_id);
+        
+        // Initialize variant 0 (default)
+        glyphset.luts.push(vec![default_global_id; 65536]);
+        glyphset.variant_names.insert("default".to_string(), 0);
+
+        // Iterate over all chars in atlas
+        for (&ch, mapping) in &atlas.config.char_map {
+            let code = ch as u32;
+            if code >= 65536 { continue; }
+            
+            // Register physical glyph
+            let global_id = self.global_registry.register_glyph(atlas_key, mapping.glyph);
+            glyphset.luts[0][code as usize] = global_id;
+            
+            // Handle alternatives
+            for (variant_name, &alt_glyph) in &mapping.alternatives {
+                let variant_id = *glyphset.variant_names.entry(variant_name.clone()).or_insert_with(|| {
+                    let id = glyphset.luts.len() as u8;
+                    // Initialize new variant with default glyphs (fallback)
+                    // Ideally we should copy from variant 0, but for now default is safe
+                    glyphset.luts.push(vec![default_global_id; 65536]);
+                    id
+                });
+                
+                let alt_global_id = self.global_registry.register_glyph(atlas_key, alt_glyph);
+                glyphset.luts[variant_id as usize][code as usize] = alt_global_id;
+            }
+        }
+        
+        self.glyphsets.insert(glyphset)
+    }
+
+    pub fn glyphset_size(&self, key: GlyphsetKey) -> Option<(u32, u32)> {
+        self.glyphsets.get(key).map(|g| (g.tile_w, g.tile_h))
+    }
+
+    // ========================================================================
     // Буферы
     // ========================================================================
     
@@ -221,11 +277,11 @@ impl Grids {
         name: impl Into<String>,
         w: u32,
         h: u32,
-        atlas: AtlasKey,
+        glyphset: GlyphsetKey,
     ) -> BufferKey {
-        let default_glyph = self.default_glyph(atlas);
-        let fill = Character::blank(default_glyph);
-        let buffer = Buffer::new(name, w, h, atlas, 0, fill);
+        let default_code = 32; // Space
+        let fill = Character::blank(default_code);
+        let buffer = Buffer::new(name, w, h, glyphset, 0, fill);
         self.buffers.insert(buffer)
     }
     
@@ -235,12 +291,12 @@ impl Grids {
         name: impl Into<String>,
         w: u32,
         h: u32,
-        atlas: AtlasKey,
+        glyphset: GlyphsetKey,
         z_index: i32,
     ) -> BufferKey {
-        let default_glyph = self.default_glyph(atlas);
-        let fill = Character::blank(default_glyph);
-        let buffer = Buffer::new(name, w, h, atlas, z_index, fill);
+        let default_code = 32;
+        let fill = Character::blank(default_code);
+        let buffer = Buffer::new(name, w, h, glyphset, z_index, fill);
         self.buffers.insert(buffer)
     }
     
@@ -277,8 +333,14 @@ impl Grids {
     
     /// Установить вариант по умолчанию для буфера
     pub fn set_buffer_variant(&mut self, key: BufferKey, variant: Option<impl Into<String>>) {
+        let variant_id = if let Some(v) = variant {
+            let v_str = v.into();
+            let gs_key = self.buffers.get(key).map(|b| b.glyphset).unwrap();
+            self.glyphsets.get(gs_key).and_then(|gs| gs.variant_names.get(&v_str)).copied().unwrap_or(0)
+        } else { 0 };
+
         if let Some(buf) = self.buffers.get_mut(key) {
-            buf.default_variant = variant.map(|v| v.into());
+            buf.default_variant_id = variant_id;
         }
     }
     
@@ -292,10 +354,7 @@ impl Grids {
     /// Изменить размер буфера, сохраняя содержимое
     /// Возвращает список потомков, оказавшихся за пределами нового размера
     pub fn resize_buffer(&mut self, buffer: BufferKey, new_w: u32, new_h: u32) -> Vec<OrphanedChild> {
-        let default_glyph = self.buffers.get(buffer)
-            .and_then(|b| self.atlases.get(b.atlas))
-            .map(|a| a.config.default_glyph)
-            .unwrap_or(0);
+        let default_code = 32;
         
         let mut orphaned = Vec::new();
         
@@ -305,7 +364,7 @@ impl Grids {
             let old_h = buf.h;
             
             // Новый буфер данных
-            let fill = Character::blank(default_glyph);
+            let fill = Character::blank(default_code);
             buf.data = vec![fill; (new_w * new_h) as usize];
             buf.w = new_w;
             buf.h = new_h;
@@ -501,13 +560,10 @@ impl Grids {
     
     /// Очистить буфер
     pub fn clear_buffer(&mut self, buffer: BufferKey) {
-        let default_glyph = self.buffers.get(buffer)
-            .and_then(|b| self.atlases.get(b.atlas))
-            .map(|a| a.config.default_glyph)
-            .unwrap_or(0);
+        let default_code = 32;
         
         if let Some(buf) = self.buffers.get_mut(buffer) {
-            buf.clear(Character::blank(default_glyph));
+            buf.clear(Character::blank(default_code));
         }
     }
     
@@ -522,13 +578,10 @@ impl Grids {
         }
         
         // Очищаем сам буфер
-        let default_glyph = self.buffers.get(buffer)
-            .and_then(|b| self.atlases.get(b.atlas))
-            .map(|a| a.config.default_glyph)
-            .unwrap_or(0);
+        let default_code = 32;
         
         if let Some(buf) = self.buffers.get_mut(buffer) {
-            buf.clear(Character::blank(default_glyph));
+            buf.clear(Character::blank(default_code));
         }
         
         // Собираем ключи детей
@@ -557,10 +610,10 @@ impl Grids {
         buf_screen_y: i32,
     ) -> Option<(u32, u32)> {
         let buf = self.buffers.get(buffer)?;
-        let atlas = self.atlases.get(buf.atlas)?;
+        let gs = self.glyphsets.get(buf.glyphset)?;
         
-        let tile_w = atlas.config.tile_width as i32;
-        let tile_h = atlas.config.tile_height as i32;
+        let tile_w = gs.tile_w as i32;
+        let tile_h = gs.tile_h as i32;
         
         let local_x = screen_x - buf_screen_x;
         let local_y = screen_y - buf_screen_y;
@@ -611,10 +664,10 @@ impl Grids {
             return None;
         }
         
-        let atlas = self.atlases.get(buffer.atlas)?;
+        let gs = self.glyphsets.get(buffer.glyphset)?;
         
-        let tile_w = atlas.config.tile_width as f32;
-        let tile_h = atlas.config.tile_height as f32;
+        let tile_w = gs.tile_w as f32;
+        let tile_h = gs.tile_h as f32;
         
         // Собираем детей этого буфера
         let children: Vec<_> = self.attachments.iter()

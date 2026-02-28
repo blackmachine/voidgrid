@@ -30,9 +30,9 @@ pub enum MappingRule {
 }
 
 #[derive(Debug, Clone)]
-struct CharMapping {
-    glyph: u32,
-    alternatives: HashMap<String, u32>,
+pub struct CharMapping {
+    pub glyph: u32,
+    pub alternatives: HashMap<String, u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -45,7 +45,7 @@ pub struct AtlasConfig {
     pub mappings: Vec<MappingRule>,
     
     #[serde(skip)]
-    char_map: HashMap<char, CharMapping>,
+    pub char_map: HashMap<char, CharMapping>,
 }
 
 impl AtlasConfig {

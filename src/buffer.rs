@@ -1,4 +1,4 @@
-use crate::types::{AtlasKey, BufferKey, Character};
+use crate::types::{GlyphsetKey, BufferKey, Character};
 
 pub struct Buffer {
     pub name: String,
@@ -7,9 +7,9 @@ pub struct Buffer {
     pub z_index: i32,
     pub visible: bool,
     pub opacity: f32,
-    pub default_variant: Option<String>,
+    pub default_variant_id: u8,
     pub(crate) data: Vec<Character>,
-    pub(crate) atlas: AtlasKey,
+    pub(crate) glyphset: GlyphsetKey,
 }
 
 impl std::fmt::Debug for Buffer {
@@ -23,16 +23,16 @@ impl std::fmt::Debug for Buffer {
 }
 
 impl Buffer {
-    pub fn new(name: impl Into<String>, w: u32, h: u32, atlas: AtlasKey, z_index: i32, fill: Character) -> Self {
+    pub fn new(name: impl Into<String>, w: u32, h: u32, glyphset: GlyphsetKey, z_index: i32, fill: Character) -> Self {
         let size = (w * h) as usize;
         Self {
             name: name.into(),
             w, h, z_index,
             visible: true,
             opacity: 1.0,
-            default_variant: None,
+            default_variant_id: 0,
             data: vec![fill; size],
-            atlas,
+            glyphset,
         }
     }
 
@@ -60,12 +60,12 @@ impl Buffer {
         self.data.fill(fill);
     }
 
-    pub fn atlas(&self) -> AtlasKey {
-        self.atlas
+    pub fn glyphset(&self) -> GlyphsetKey {
+        self.glyphset
     }
     
-    pub fn set_atlas(&mut self, atlas: AtlasKey) {
-        self.atlas = atlas;
+    pub fn set_glyphset(&mut self, glyphset: GlyphsetKey) {
+        self.glyphset = glyphset;
     }
 }
 

@@ -72,15 +72,9 @@ impl TextOps for Grids {
         direction: WriteDirection,
         auto_rotate: bool,
     ) {
-        // Получаем buffer и его default_variant
-        // Примечание: buffers и atlases теперь pub(crate)
-        let (atlas_key, default_variant) = match self.buffers.get(buffer) {
-            Some(b) => (b.atlas(), b.default_variant.clone()),
-            None => return,
-        };
-        
-        let atlas = match self.atlases.get(atlas_key) {
-            Some(a) => a,
+        // Получаем buffer и его default_variant_id
+        let (_glyphset_key, default_variant_id) = match self.buffers.get(buffer) {
+            Some(b) => (b.glyphset(), b.default_variant_id),
             None => return,
         };
         
@@ -111,17 +105,13 @@ impl TextOps for Grids {
                     }
                     None
                 } else {
-                    let glyph = if let Some(ref var) = default_variant {
-                        atlas.config.map_char_variant(ch, var)
-                    } else {
-                        atlas.config.map_char(ch)
-                    };
+                    let code = ch as u32;
                     let pos_x = cx as u32;
                     let pos_y = cy as u32;
                     cx += dx;
                     cy += dy;
                     Some((pos_x, pos_y, Character::full(
-                        glyph, fcolor, bcolor, fg_blend, bg_blend, char_transform, mask
+                        code, default_variant_id, fcolor, bcolor, fg_blend, bg_blend, char_transform, mask
                     )))
                 }
             })
@@ -145,18 +135,20 @@ impl TextOps for Grids {
         bcolor: Color,
         variant: &str,
     ) {
-        let atlas_key = match self.buffers.get(buffer) {
-            Some(b) => b.atlas(),
+        let glyphset_key = match self.buffers.get(buffer) {
+            Some(b) => b.glyphset(),
             None => return,
         };
-        let atlas = match self.atlases.get(atlas_key) {
-            Some(a) => a,
+        let glyphset = match self.glyphsets.get(glyphset_key) {
+            Some(g) => g,
             None => return,
         };
         
         let mut cx = x;
         let mut cy = y;
         
+        let variant_id = *glyphset.variant_names.get(variant).unwrap_or(&0);
+
         let chars: Vec<(u32, u32, Character)> = text.chars()
             .filter_map(|ch| {
                 if ch == '\n' {
@@ -164,12 +156,12 @@ impl TextOps for Grids {
                     cx = x;
                     None
                 } else {
-                    let glyph = atlas.config.map_char_variant(ch, variant);
+                    let code = ch as u32;
                     let pos_x = cx;
                     let pos_y = cy;
                     cx += 1;
                     Some((pos_x, pos_y, Character::full(
-                        glyph, fcolor, bcolor, Blend::Alpha, Blend::Alpha, Transform::default(), None
+                        code, variant_id, fcolor, bcolor, Blend::Alpha, Blend::Alpha, Transform::default(), None
                     )))
                 }
             })
