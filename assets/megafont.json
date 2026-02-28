@@ -1,0 +1,9 @@
+{
+  "tile_width": 32,
+  "tile_height": 32,
+  "columns": 5,
+  "texture_path": "assets/megafont.png",
+  "default_glyph": 2,
+  "mappings": [
+  ]
+}

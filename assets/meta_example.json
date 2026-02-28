@@ -1,0 +1,9 @@
+{
+  "tile_width": 32,
+  "tile_height": 32,
+  "default_glyph": 90,
+  "atlases": [
+    { "path": "megafont.json", "offset": 0 },
+    { "path": "icons.json", "offset": 1000 }
+  ]
+}

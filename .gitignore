@@ -1,0 +1,38 @@
+# --- Rust ---
+/target/
+
+**/*.rs.bk
+
+# Cargo.lock
+
+# --- Windows ---
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+*.exe
+*.pdb
+*.dll
+
+# VS Code (локальные настройки проекта, их лучше не тащить в репо)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+!.vscode/settings.json
+
+# JetBrains (RustRover, IntelliJ IDEA)
+.idea/
+*.iml
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+.env
+.env.local
+
+*.log
+*.dmp
