@@ -232,8 +232,11 @@ impl Grids {
         
         let mut glyphset = Glyphset::new(name.to_string(), tile_w, tile_h, default_global_id);
         
+        // Sentinel for unmapped glyphs
+        const UNMAPPED: u32 = u32::MAX;
+
         // Initialize variant 0 (default)
-        glyphset.luts.push(vec![default_global_id; 65536]);
+        glyphset.luts.push(vec![UNMAPPED; 65536]);
         glyphset.variant_names.insert("default".to_string(), 0);
 
         // Process semantic groups
@@ -284,7 +287,7 @@ impl Grids {
                 // Получаем или создаем ID варианта
                 let variant_id = *glyphset.variant_names.entry(variant_name.clone()).or_insert_with(|| {
                     let id = glyphset.luts.len() as u8;
-                    glyphset.luts.push(vec![default_global_id; 65536]);
+                    glyphset.luts.push(vec![UNMAPPED; 65536]);
                     id
                 });
 
@@ -307,6 +310,24 @@ impl Grids {
                     if (code as usize) < 65536 {
                         glyphset.luts[variant_id as usize][code as usize] = global_id;
                     }
+                }
+            }
+        }
+        
+        // Post-process: Apply fallbacks
+        // 1. Fix default variant (fill holes with atlas default)
+        for code in 0..65536 {
+            if glyphset.luts[0][code] == UNMAPPED {
+                glyphset.luts[0][code] = default_global_id;
+            }
+        }
+        
+        // 2. Fix other variants (fill holes with default variant)
+        let default_lut = glyphset.luts[0].clone();
+        for variant_id in 1..glyphset.luts.len() {
+            for code in 0..65536 {
+                if glyphset.luts[variant_id][code] == UNMAPPED {
+                    glyphset.luts[variant_id][code] = default_lut[code];
                 }
             }
         }
@@ -430,26 +451,39 @@ impl Grids {
         
         for path in self.global_registry.path_cache.keys() {
             // Ищем последний разделитель
-            let prefix = if let Some(idx) = path.rfind('/') {
+            let (prefix, filename) = if let Some(idx) = path.rfind('/') {
                 // Корректировка для символа '/', который создает путь вида "...//"
                 // Если перед найденным слэшем стоит еще один слэш, значит это разделитель + имя файла "/"
                 if idx > 0 && path.as_bytes()[idx - 1] == b'/' {
-                    &path[0..idx - 1]
+                    (&path[0..idx - 1], &path[idx..])
                 } else {
-                    &path[0..idx]
+                    (&path[0..idx], &path[idx + 1..])
                 }
             } else {
-                "<root>"
+                ("<root>", path.as_str())
             };
-            *mounts.entry(prefix.to_string()).or_default() += 1;
+            
+            let variant = if let Some(colon_idx) = filename.rfind(':') {
+                if filename == ":" { "default" } else { &filename[colon_idx + 1..] }
+            } else {
+                "default"
+            };
+            
+            let group_key = if variant == "default" {
+                prefix.to_string()
+            } else {
+                format!("{}:{}", prefix, variant)
+            };
+            
+            *mounts.entry(group_key).or_default() += 1;
         }
         
         println!("Mounted Paths (Virtual Filesystem):");
         let mut sorted_mounts: Vec<_> = mounts.into_iter().collect();
         sorted_mounts.sort_by(|a, b| a.0.cmp(&b.0));
         
-        for (prefix, count) in sorted_mounts {
-            println!("  '{}/*' -> {} items", prefix, count);
+        for (group, count) in sorted_mounts {
+            println!("  '{}/*' -> {} items", group, count);
         }
         println!("=================================");
     }
