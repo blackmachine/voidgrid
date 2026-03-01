@@ -5,8 +5,6 @@
   "texture_path": "assets/hugefont.png",
   "default_glyph": 17,
   "mappings": [
-    { "type": "range", "start": "A", "end": "Z", "glyph": 0},
-    { "type": "string", "chars": "[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?", "glyph": 27, "alternatives": { "inverted": 128 } },
-    { "type": "range", "start": "a", "end": "z", "glyph": 65, "alternatives": { "inverted": 128 } }
+    
   ]
 }

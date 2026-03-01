@@ -267,6 +267,23 @@ impl Grids {
         self.glyphsets.get(key).map(|g| (g.tile_w, g.tile_h))
     }
 
+    /// Вывести отладочную информацию о реестре глифов с именами атласов
+    pub fn debug_print_registry(&self) {
+        println!("=== Global Glyph Registry Debug ===");
+        println!("Entries (Total: {}):", self.global_registry.entries.len());
+        for (id, (atlas_key, glyph)) in self.global_registry.entries.iter().enumerate() {
+            let atlas_name = self.atlases.get(*atlas_key)
+                .map(|a| a.config.texture_path.as_str())
+                .unwrap_or("UNKNOWN");
+            println!("  Global ID {}: Atlas '{}' ({:?}), Local Glyph {}", id, atlas_name, atlas_key, glyph);
+        }
+        println!("Path Cache (Total: {}):", self.global_registry.path_cache.len());
+        for (path, global_id) in &self.global_registry.path_cache {
+            println!("  '{}' -> Global ID {}", path, global_id);
+        }
+        println!("=================================");
+    }
+
     // ========================================================================
     // Буферы
     // ========================================================================

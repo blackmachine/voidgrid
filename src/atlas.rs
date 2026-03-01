@@ -42,6 +42,7 @@ pub struct AtlasConfig {
     pub columns: u32,
     pub texture_path: String,
     pub default_glyph: u32,
+    #[serde(default)]
     pub mappings: Vec<MappingRule>,
     
     #[serde(skip)]
@@ -51,6 +52,17 @@ pub struct AtlasConfig {
 impl AtlasConfig {
     pub fn build_char_map(&mut self) {
         self.char_map.clear();
+        
+        if self.mappings.is_empty() {
+            // Direct mapping: byte (0..255) -> glyph index
+            for i in 0..=255 {
+                if let Some(ch) = char::from_u32(i) {
+                    self.char_map.insert(ch, CharMapping { glyph: i, alternatives: HashMap::new() });
+                }
+            }
+            return;
+        }
+
         for rule in &self.mappings {
             let alternatives = match rule {
                 MappingRule::Range { alternatives, .. } => alternatives,
