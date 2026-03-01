@@ -12,8 +12,7 @@ pub fn load_atlas_from_file(
     config_path: &str,
 ) -> Result<Atlas, Box<dyn std::error::Error>> {
     let json_str = fs::read_to_string(config_path)?;
-    let mut config: AtlasConfig = serde_json::from_str(&json_str)?;
-    config.build_char_map();
+    let config: AtlasConfig = serde_json::from_str(&json_str)?;
     
     let texture = rl.load_texture(thread, &config.texture_path)
         .map_err(|e| format!("Failed to load texture '{}': {}", config.texture_path, e))?;

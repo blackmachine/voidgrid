@@ -42,6 +42,10 @@ fn main() {
     let huge = vg.grids.load_atlas(&mut rl, &thread, "assets/huge.json")
         .expect("Failed to load huge atlas");
 
+    // Монтируем атласы в виртуальную файловую систему
+    vg.grids.mount_atlas("fonts/crt", crt);
+    vg.grids.mount_atlas("fonts/huge", huge);
+
     // Создаем Glyphsets (предполагаем наличие хелпера для создания из атласа)
     let crt_gs = vg.grids.create_glyphset_from_atlas("crt", crt);
     let huge_gs = vg.grids.create_glyphset_from_atlas("huge", huge);
@@ -163,6 +167,13 @@ fn main() {
         let alpha = rand::rng().random_range(0..=32);
         // Character::new теперь принимает (code, variant_id, fg, bg)
         vg.grids.set_char(back_buf, rx, ry, Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK));
+
+        // --- Демонстрация иконок (стрелки из huge.json) ---
+        // back_buf использует huge_gs, в котором определена группа "arrows"
+        vg.grids.put_icon(back_buf, 0, 0, "arrow_left", Color::YELLOW, Color::BLANK);
+        vg.grids.put_icon(back_buf, 1, 0, "arrow_right", Color::YELLOW, Color::BLANK);
+        vg.grids.put_icon(back_buf, 2, 0, "arrow_up", Color::YELLOW, Color::BLANK);
+        vg.grids.put_icon(back_buf, 3, 0, "arrow_down", Color::YELLOW, Color::BLANK);
 
         // --- Drop zone буфер ---
         {

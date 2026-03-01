@@ -4,10 +4,22 @@
   "columns": 32,
   "texture_path": "assets/crt.png",
   "default_glyph": 32,
-  "mappings": [
-    { "type": "single", "char": "@", "glyph": 0, "alternatives": { "inverted": 128 } },
-    { "type": "range", "start": "A", "end": "Z", "glyph": 1, "alternatives": { "inverted": 128 } },
-    { "type": "string", "chars": "[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?", "glyph": 27, "alternatives": { "inverted": 128 } },
-    { "type": "range", "start": "a", "end": "z", "glyph": 65, "alternatives": { "inverted": 128 } }
-  ]
+  "semantic_groups": {
+    "latin_upper": {
+      "source": "ascii_upper",
+      "variants": { "default": 1, "inverted": 129 }
+    },
+    "latin_lower": {
+      "source": "ascii_lower",
+      "variants": { "default": 65, "inverted": 193 }
+    },
+    "special_block": {
+      "source": "chars:[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?",
+      "variants": { "default": 27, "inverted": 155 }
+    },
+    "at_symbol": {
+      "source": "chars:@",
+      "variants": { "default": 0, "inverted": 128 }
+    }
+  }
 }

@@ -8,6 +8,9 @@ pub struct GlobalGlyphRegistry {
     
     /// Flat path cache for lookups (already resolved from tree logic).
     pub path_cache: HashMap<String, u32>,
+
+    /// Reverse lookup for deduplication: (AtlasKey, local_glyph) -> global_id
+    reverse_lookup: HashMap<(AtlasKey, u32), u32>,
 }
 
 impl GlobalGlyphRegistry {
@@ -15,12 +18,17 @@ impl GlobalGlyphRegistry {
         Self {
             entries: Vec::new(),
             path_cache: HashMap::new(),
+            reverse_lookup: HashMap::new(),
         }
     }
 
     pub fn register_glyph(&mut self, atlas: AtlasKey, local_glyph: u32) -> u32 {
+        if let Some(&id) = self.reverse_lookup.get(&(atlas, local_glyph)) {
+            return id;
+        }
         let global_id = self.entries.len() as u32;
         self.entries.push((atlas, local_glyph));
+        self.reverse_lookup.insert((atlas, local_glyph), global_id);
         global_id
     }
 

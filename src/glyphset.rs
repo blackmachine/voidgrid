@@ -19,6 +19,12 @@ pub struct Glyphset {
     /// Additional dictionary for UI elements ("ui/borders:top_left" -> code)
     pub namespace_map: HashMap<String, u32>,
     
+    /// Словарь именованных кодов (например, "arrow_left" -> 201)
+    pub named_codes: HashMap<String, u32>,
+    
+    /// Словарь групп (например, "arrows" -> [201, 202])
+    pub named_groups: HashMap<String, Vec<u32>>,
+    
     pub default_global_id: u32,
 }
 
@@ -31,6 +37,8 @@ impl Glyphset {
             variant_names: HashMap::new(),
             luts: Vec::new(),
             namespace_map: HashMap::new(),
+            named_codes: HashMap::new(),
+            named_groups: HashMap::new(),
             default_global_id,
         }
     }

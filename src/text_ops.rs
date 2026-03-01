@@ -40,6 +40,16 @@ pub trait TextOps {
         bcolor: Color,
         variant: &str,
     );
+
+    fn put_icon(
+        &mut self,
+        buffer: BufferKey,
+        x: u32,
+        y: u32,
+        icon_name: &str,
+        fcolor: Color,
+        bcolor: Color,
+    );
 }
 
 impl TextOps for Grids {
@@ -171,6 +181,27 @@ impl TextOps for Grids {
             for (x, y, ch) in chars {
                 buf.set(x, y, ch);
             }
+        }
+    }
+
+    fn put_icon(
+        &mut self,
+        buffer: BufferKey,
+        x: u32,
+        y: u32,
+        icon_name: &str,
+        fcolor: Color,
+        bcolor: Color,
+    ) {
+        let (glyphset_key, default_variant_id) = match self.buffers.get(buffer) {
+            Some(b) => (b.glyphset(), b.default_variant_id),
+            None => return,
+        };
+        
+        if let Some(code) = self.resolve_code(glyphset_key, icon_name) {
+             if let Some(buf) = self.buffers.get_mut(buffer) {
+                buf.set(x, y, Character::new(code, default_variant_id, fcolor, bcolor));
+             }
         }
     }
 }

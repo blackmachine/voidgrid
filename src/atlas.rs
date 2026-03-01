@@ -3,36 +3,23 @@ use raylib::prelude::{Texture2D, Rectangle};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type")]
-pub enum MappingRule {
-    #[serde(rename = "range")]
-    Range {
-        start: char,
-        end: char,
-        glyph: u32,
-        #[serde(default)]
-        alternatives: HashMap<String, u32>,
-    },
-    #[serde(rename = "single")]
-    Single {
-        char: char,
-        glyph: u32,
-        #[serde(default)]
-        alternatives: HashMap<String, u32>,
-    },
-    #[serde(rename = "string")]
-    String {
-        chars: String,
-        glyph: u32,
-        #[serde(default)]
-        alternatives: HashMap<String, u32>,
-    },
+#[serde(untagged)]
+pub enum SourceType {
+    String(String),
+    List(Vec<String>),
 }
 
-#[derive(Debug, Clone)]
-pub struct CharMapping {
-    pub glyph: u32,
-    pub alternatives: HashMap<String, u32>,
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum VariantMapping {
+    StartId(u32),
+    Range([u32; 2]),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SemanticGroup {
+    pub source: SourceType,
+    pub variants: HashMap<String, VariantMapping>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -42,67 +29,12 @@ pub struct AtlasConfig {
     pub columns: u32,
     pub texture_path: String,
     pub default_glyph: u32,
-    #[serde(default)]
-    pub mappings: Vec<MappingRule>,
     
-    #[serde(skip)]
-    pub char_map: HashMap<char, CharMapping>,
+    #[serde(default)]
+    pub semantic_groups: HashMap<String, SemanticGroup>,
 }
 
 impl AtlasConfig {
-    pub fn build_char_map(&mut self) {
-        self.char_map.clear();
-        
-        if self.mappings.is_empty() {
-            // Direct mapping: byte (0..255) -> glyph index
-            for i in 0..=255 {
-                if let Some(ch) = char::from_u32(i) {
-                    self.char_map.insert(ch, CharMapping { glyph: i, alternatives: HashMap::new() });
-                }
-            }
-            return;
-        }
-
-        for rule in &self.mappings {
-            let alternatives = match rule {
-                MappingRule::Range { alternatives, .. } => alternatives,
-                MappingRule::Single { alternatives, .. } => alternatives,
-                MappingRule::String { alternatives, .. } => alternatives,
-            }.clone();
-            
-            match rule {
-                MappingRule::Range { start, end, glyph, .. } => {
-                    for (i, code) in (*start as u32..=*end as u32).enumerate() {
-                        if let Some(ch) = char::from_u32(code) {
-                            self.char_map.insert(ch, CharMapping { glyph: glyph + i as u32, alternatives: alternatives.clone() });
-                        }
-                    }
-                }
-                MappingRule::Single { char, glyph, .. } => {
-                    self.char_map.insert(*char, CharMapping { glyph: *glyph, alternatives: alternatives.clone() });
-                }
-                MappingRule::String { chars, glyph, .. } => {
-                    for (i, ch) in chars.chars().enumerate() {
-                        self.char_map.insert(ch, CharMapping { glyph: glyph + i as u32, alternatives: alternatives.clone() });
-                    }
-                }
-            }
-        }
-    }
-    
-    pub fn map_char(&self, ch: char) -> u32 {
-        self.char_map.get(&ch).map(|m| m.glyph).unwrap_or(self.default_glyph)
-    }
-    
-    pub fn map_char_variant(&self, ch: char, variant: &str) -> u32 {
-        if let Some(mapping) = self.char_map.get(&ch) {
-            if let Some(&offset) = mapping.alternatives.get(variant) {
-                return mapping.glyph + offset;
-            }
-            return mapping.glyph;
-        }
-        self.default_glyph
-    }
 }
 
 pub struct Atlas {

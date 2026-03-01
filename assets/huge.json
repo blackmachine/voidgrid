@@ -4,7 +4,12 @@
   "columns": 6,
   "texture_path": "assets/hugefont.png",
   "default_glyph": 17,
-  "mappings": [
-    
-  ]
+  "semantic_groups": {
+    "arrows": {
+      "source": ["arrow_left", "arrow_right", "arrow_up", "arrow_down"],
+      "variants": {
+        "default": 0
+      }
+    }
+  }
 }

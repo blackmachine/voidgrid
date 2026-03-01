@@ -24,7 +24,7 @@ use slotmap::SlotMap;
 use crate::types::*;
 use crate::types::Transform;
 use crate::atlas::Atlas;
-use crate::buffer::{Buffer, Attachment, OrphanedChild};
+use crate::buffer::{Attachment, Buffer, OrphanedChild};
 use crate::palette::Palette;
 use crate::shader::{ShaderData, UniformValue};
 use crate::assets::{self, AssetCache};
@@ -236,50 +236,220 @@ impl Grids {
         glyphset.luts.push(vec![default_global_id; 65536]);
         glyphset.variant_names.insert("default".to_string(), 0);
 
-        // Iterate over all chars in atlas
-        for (&ch, mapping) in &atlas.config.char_map {
-            let code = ch as u32;
-            if code >= 65536 { continue; }
+        // Process semantic groups
+        // Мы клонируем ключи, чтобы не держать заимствование atlas
+        let groups: Vec<(String, crate::atlas::SemanticGroup)> = atlas.config.semantic_groups.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+
+        for (group_name, group_data) in groups {
+            // 1. Разворачиваем Source в список имен и (опционально) кодов
+            let (names, mut codes) = self.expand_source(&group_data.source);
             
-            // Register physical glyph
-            let global_id = self.global_registry.register_glyph(atlas_key, mapping.glyph);
-            glyphset.luts[0][code as usize] = global_id;
+            // Если коды не определены (виртуальные имена), пытаемся определить их через вариант "default"
+            if codes.iter().any(|c| c.is_none()) {
+                if let Some(default_mapping) = group_data.variants.get("default") {
+                    let start_id = match default_mapping {
+                        crate::atlas::VariantMapping::StartId(id) => *id,
+                        crate::atlas::VariantMapping::Range([start, _]) => *start,
+                    };
+                    // Присваиваем коды последовательно, начиная со start_id
+                    for (i, code_opt) in codes.iter_mut().enumerate() {
+                        if code_opt.is_none() {
+                            *code_opt = Some(start_id + i as u32);
+                        }
+                    }
+                } else {
+                    println!("Warning: Semantic group '{}' has virtual names but no 'default' variant to assign codes.", group_name);
+                    continue;
+                }
+            }
+
+            // Собираем финальный список кодов
+            let final_codes: Vec<u32> = codes.into_iter().flatten().collect();
             
-            // Handle alternatives
-            for (variant_name, &alt_glyph) in &mapping.alternatives {
+            if names.len() != final_codes.len() {
+                println!("Warning: Group '{}' source mismatch.", group_name);
+                continue;
+            }
+
+            // Регистрируем имена и группу в Glyphset
+            glyphset.named_groups.insert(group_name.clone(), final_codes.clone());
+            for (name, &code) in names.iter().zip(&final_codes) {
+                glyphset.named_codes.insert(name.clone(), code);
+            }
+
+            // 2. Обрабатываем варианты
+            for (variant_name, mapping) in &group_data.variants {
+                // Получаем или создаем ID варианта
                 let variant_id = *glyphset.variant_names.entry(variant_name.clone()).or_insert_with(|| {
                     let id = glyphset.luts.len() as u8;
-                    // Initialize new variant with default glyphs (fallback)
-                    // Ideally we should copy from variant 0, but for now default is safe
                     glyphset.luts.push(vec![default_global_id; 65536]);
                     id
                 });
-                
-                let alt_global_id = self.global_registry.register_glyph(atlas_key, alt_glyph);
-                glyphset.luts[variant_id as usize][code as usize] = alt_global_id;
+
+                // Определяем физические глифы для этого варианта
+                let start_glyph = match mapping {
+                    crate::atlas::VariantMapping::StartId(id) => *id,
+                    crate::atlas::VariantMapping::Range([start, end]) => {
+                        let count = end - start + 1;
+                        if count as usize != names.len() {
+                            println!("Warning: Group '{}' variant '{}' range size mismatch.", group_name, variant_name);
+                        }
+                        *start
+                    }
+                };
+
+                // Заполняем LUT
+                for (i, &code) in final_codes.iter().enumerate() {
+                    let physical_glyph = start_glyph + i as u32;
+                    let global_id = self.global_registry.register_glyph(atlas_key, physical_glyph);
+                    if (code as usize) < 65536 {
+                        glyphset.luts[variant_id as usize][code as usize] = global_id;
+                    }
+                }
             }
         }
         
         self.glyphsets.insert(glyphset)
+    }
+    
+    /// Вспомогательный метод для развертывания источника
+    fn expand_source(&self, source: &crate::atlas::SourceType) -> (Vec<String>, Vec<Option<u32>>) {
+        match source {
+            crate::atlas::SourceType::List(list) => {
+                // Список строк (виртуальные имена), коды пока неизвестны
+                (list.clone(), vec![None; list.len()])
+            },
+            crate::atlas::SourceType::String(s) => {
+                if s == "ascii_lower" {
+                    let chars: Vec<char> = ('a'..='z').collect();
+                    let names = chars.iter().map(|c| c.to_string()).collect();
+                    let codes = chars.iter().map(|c| Some(*c as u32)).collect();
+                    (names, codes)
+                } else if s == "ascii_upper" {
+                    let chars: Vec<char> = ('A'..='Z').collect();
+                    let names = chars.iter().map(|c| c.to_string()).collect();
+                    let codes = chars.iter().map(|c| Some(*c as u32)).collect();
+                    (names, codes)
+                } else if s == "digits" {
+                    let chars: Vec<char> = ('0'..='9').collect();
+                    let names = chars.iter().map(|c| c.to_string()).collect();
+                    let codes = chars.iter().map(|c| Some(*c as u32)).collect();
+                    (names, codes)
+                } else if let Some(stripped) = s.strip_prefix("chars:") {
+                    let chars: Vec<char> = stripped.chars().collect();
+                    let names = chars.iter().map(|c| c.to_string()).collect();
+                    let codes = chars.iter().map(|c| Some(*c as u32)).collect();
+                    (names, codes)
+                } else {
+                    // Неизвестный пресет или просто строка
+                    (vec![s.clone()], vec![None])
+                }
+            }
+        }
     }
 
     pub fn glyphset_size(&self, key: GlyphsetKey) -> Option<(u32, u32)> {
         self.glyphsets.get(key).map(|g| (g.tile_w, g.tile_h))
     }
 
+    /// Получить семантический код по имени (например, "arrow_left" -> 201)
+    pub fn resolve_code(&self, key: GlyphsetKey, name: &str) -> Option<u32> {
+        self.glyphsets.get(key).and_then(|gs| gs.named_codes.get(name).copied())
+    }
+
+    /// Получить список кодов для группы (например, "arrows" -> [201, 202])
+    pub fn resolve_group(&self, key: GlyphsetKey, group: &str) -> Option<&Vec<u32>> {
+        self.glyphsets.get(key).and_then(|gs| gs.named_groups.get(group))
+    }
+
+    /// Монтировать атлас в виртуальное дерево путей.
+    /// Генерирует пути вида "{prefix}/{char}" и "{prefix}/{char}:{variant}".
+    pub fn mount_atlas(&mut self, prefix: &str, atlas_key: AtlasKey) {
+        let atlas = self.atlases.get(atlas_key).expect("Atlas not found");
+        
+        // Clone groups to avoid borrowing issues
+        let groups: Vec<(String, crate::atlas::SemanticGroup)> = atlas.config.semantic_groups.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+            
+        for (_group_name, group_data) in groups {
+            let (names, mut codes) = self.expand_source(&group_data.source);
+            
+            // Resolve codes if needed (same logic as create_glyphset)
+            if codes.iter().any(|c| c.is_none()) {
+                 if let Some(default_mapping) = group_data.variants.get("default") {
+                    let start_id = match default_mapping {
+                        crate::atlas::VariantMapping::StartId(id) => *id,
+                        crate::atlas::VariantMapping::Range([start, _]) => *start,
+                    };
+                    for (i, code_opt) in codes.iter_mut().enumerate() {
+                        if code_opt.is_none() {
+                            *code_opt = Some(start_id + i as u32);
+                        }
+                    }
+                }
+            }
+            
+            let final_codes: Vec<u32> = codes.into_iter().flatten().collect();
+            
+            // Iterate variants
+            for (variant_name, mapping) in &group_data.variants {
+                 let start_glyph = match mapping {
+                    crate::atlas::VariantMapping::StartId(id) => *id,
+                    crate::atlas::VariantMapping::Range([start, _]) => *start,
+                };
+                
+                for (i, name) in names.iter().enumerate() {
+                    if i >= final_codes.len() { break; }
+                    let physical_glyph = start_glyph + i as u32;
+                    let gid = self.global_registry.register_glyph(atlas_key, physical_glyph);
+                    
+                    let path = if variant_name == "default" {
+                        format!("{}/{}", prefix, name)
+                    } else {
+                        format!("{}/{}:{}", prefix, name, variant_name)
+                    };
+                    
+                    self.global_registry.map_path(path, gid);
+                }
+            }
+        }
+        
+        println!("Mounted atlas {:?} at '{}'", atlas_key, prefix);
+    }
+
     /// Вывести отладочную информацию о реестре глифов с именами атласов
     pub fn debug_print_registry(&self) {
         println!("=== Global Glyph Registry Debug ===");
-        println!("Entries (Total: {}):", self.global_registry.entries.len());
-        for (id, (atlas_key, glyph)) in self.global_registry.entries.iter().enumerate() {
-            let atlas_name = self.atlases.get(*atlas_key)
-                .map(|a| a.config.texture_path.as_str())
-                .unwrap_or("UNKNOWN");
-            println!("  Global ID {}: Atlas '{}' ({:?}), Local Glyph {}", id, atlas_name, atlas_key, glyph);
+        println!("Physical Glyphs: {} entries registered.", self.global_registry.entries.len());
+        
+        // Группируем пути по префиксам (имитация директорий)
+        let mut mounts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        
+        for path in self.global_registry.path_cache.keys() {
+            // Ищем последний разделитель
+            let prefix = if let Some(idx) = path.rfind('/') {
+                // Корректировка для символа '/', который создает путь вида "...//"
+                // Если перед найденным слэшем стоит еще один слэш, значит это разделитель + имя файла "/"
+                if idx > 0 && path.as_bytes()[idx - 1] == b'/' {
+                    &path[0..idx - 1]
+                } else {
+                    &path[0..idx]
+                }
+            } else {
+                "<root>"
+            };
+            *mounts.entry(prefix.to_string()).or_default() += 1;
         }
-        println!("Path Cache (Total: {}):", self.global_registry.path_cache.len());
-        for (path, global_id) in &self.global_registry.path_cache {
-            println!("  '{}' -> Global ID {}", path, global_id);
+        
+        println!("Mounted Paths (Virtual Filesystem):");
+        let mut sorted_mounts: Vec<_> = mounts.into_iter().collect();
+        sorted_mounts.sort_by(|a, b| a.0.cmp(&b.0));
+        
+        for (prefix, count) in sorted_mounts {
+            println!("  '{}/*' -> {} items", prefix, count);
         }
         println!("=================================");
     }
