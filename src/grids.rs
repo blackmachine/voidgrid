@@ -43,11 +43,11 @@ pub struct Grids {
     pub(crate) atlases: SlotMap<AtlasKey, Atlas>,
     pub(crate) glyphsets: SlotMap<GlyphsetKey, Glyphset>,
     pub(crate) buffers: SlotMap<BufferKey, Buffer>,
-    palettes: SlotMap<PaletteKey, Palette>,
+    pub(crate) palettes: SlotMap<PaletteKey, Palette>,
     pub(crate) shaders: SlotMap<ShaderKey, ShaderData>,
     /// Связи родитель-потомок (вынесены из Buffer)
     pub(crate) attachments: Vec<Attachment>,
-    pub global_registry: GlobalGlyphRegistry,
+    pub(crate) global_registry: GlobalGlyphRegistry,
     
     // Post-process
     pub(crate) post_process_shader: Option<ShaderKey>,

@@ -34,9 +34,4 @@ impl Glyphset {
             default_global_id,
         }
     }
-    
-    // Logic to bake/compile LUTs based on registry would go here.
-    pub fn bake(&mut self, _registry: &GlobalGlyphRegistry) {
-        // Implementation placeholder
-    }
 }
