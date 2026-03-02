@@ -147,11 +147,22 @@ fn main() {
         // --- Строка статуса ---
         if let Some((w, _h)) = vg.grids.buffer_size(main_buf) {
             vg.grids.write_string(
-                main_buf, w.saturating_sub(35), 0,
-                "   [ESC] EXIT   [F11] FULLSCREEN   ",
+                main_buf, w.saturating_sub(29), 0,
+                "[ESC] EXIT   [F11] FULLSCREEN",
                 Color::new(0, 255, 127, 255),
-                Color::new(0, 40, 20, 255),
+                Color::BLANK,
             );
+
+
+                    // --- Фоновый буфер — случайные глифы ---
+        let rx = rand::rng().random_range(0..=w);
+        let ry = rand::rng().random_range(0..=_h);
+        let ch = rand::rng().random_range(33..=90);
+        let alpha = rand::rng().random_range(0..=32);
+        // Character::new теперь принимает (code, variant_id, fg, bg)
+        vg.grids.set_char(back_buf, rx, ry, Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK));
+
+
         }
         
         // --- Основной текст ---
@@ -159,10 +170,9 @@ fn main() {
         vg.grids.print(main_buf)
             .at(4, 18)
             .fg(Color::new(0, 255, 127, 255))
-            .writeln("TWELVE CATHODE TELEVISION")
-            .write("TUBES ").write(("FLICKERING", "inverted")).writeln(" NAKEDLY")
-            .writeln("ON ONE SIDE AND FOUR SPEAKERS")
-            .writeln("HUMMING ON THE OTHER...");
+            .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
+            .write(("FLICKERING\n", "inverted"))
+            .write("NAKEDLY\nON ONE SIDE\nAND FOUR SPEAKERS\nHUMMING ON\nTHE OTHER...");
         
         // --- Буфер с шейдером ---
 
@@ -173,13 +183,14 @@ fn main() {
             .color(Color::WHITE, Color::new(16, 16, 16, 255))
             .write(status_text);
 
-        // --- Фоновый буфер — случайные глифы ---
-        let rx = rand::rng().random_range(0..16);
-        let ry = rand::rng().random_range(0..8);
-        let ch = rand::rng().random_range(0..=15);
-        let alpha = rand::rng().random_range(0..=32);
-        // Character::new теперь принимает (code, variant_id, fg, bg)
-        vg.grids.set_char(back_buf, rx, ry, Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK));
+
+
+        // vg.grids.write_string(
+        //         back_buf, 0, 0,
+        //         "FCK",
+        //         Color::WHITE,
+        //         Color::new(180, 40, 40, 255),
+        //     );
 
         // --- Демонстрация Composite Glyphset ---
         // main_buf использует composite_gs, в который мы влили huge (стрелки)
