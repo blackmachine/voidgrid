@@ -232,12 +232,36 @@ impl Grids {
         
         let mut glyphset = Glyphset::new(name.to_string(), tile_w, tile_h, default_global_id);
         
+        // Инициализируем и заполняем данными из первого атласа
+        Self::merge_atlas_internal(&self.atlases, &mut self.global_registry, &mut glyphset, atlas_key);
+        
+        self.glyphsets.insert(glyphset)
+    }
+
+    /// Добавить (влить) атлас в существующий глифсет
+    pub fn merge_atlas(&mut self, glyphset_key: GlyphsetKey, atlas_key: AtlasKey) {
+        if let Some(glyphset) = self.glyphsets.get_mut(glyphset_key) {
+            Self::merge_atlas_internal(&self.atlases, &mut self.global_registry, glyphset, atlas_key);
+        }
+    }
+
+    /// Внутренняя функция слияния. 
+    fn merge_atlas_internal(
+        atlases: &SlotMap<AtlasKey, Atlas>,
+        registry: &mut GlobalGlyphRegistry,
+        glyphset: &mut Glyphset,
+        atlas_key: AtlasKey
+    ) {
+        let atlas = atlases.get(atlas_key).expect("Atlas not found");
+        
         // Sentinel for unmapped glyphs
         const UNMAPPED: u32 = u32::MAX;
 
-        // Initialize variant 0 (default)
-        glyphset.luts.push(vec![UNMAPPED; 65536]);
-        glyphset.variant_names.insert("default".to_string(), 0);
+        // Ensure default variant exists
+        if glyphset.luts.is_empty() {
+            glyphset.luts.push(vec![UNMAPPED; 65536]);
+            glyphset.variant_names.insert("default".to_string(), 0);
+        }
 
         // Process semantic groups
         // Мы клонируем ключи, чтобы не держать заимствование atlas
@@ -247,7 +271,7 @@ impl Grids {
 
         for (group_name, group_data) in groups {
             // 1. Разворачиваем Source в список имен и (опционально) кодов
-            let (names, mut codes) = self.expand_source(&group_data.source);
+            let (names, mut codes) = Self::expand_source(&group_data.source);
             
             // Если коды не определены (виртуальные имена), пытаемся определить их через вариант "default"
             if codes.iter().any(|c| c.is_none()) {
@@ -306,7 +330,7 @@ impl Grids {
                 // Заполняем LUT
                 for (i, &code) in final_codes.iter().enumerate() {
                     let physical_glyph = start_glyph + i as u32;
-                    let global_id = self.global_registry.register_glyph(atlas_key, physical_glyph);
+                    let global_id = registry.register_glyph(atlas_key, physical_glyph);
                     if (code as usize) < 65536 {
                         glyphset.luts[variant_id as usize][code as usize] = global_id;
                     }
@@ -318,7 +342,7 @@ impl Grids {
         // 1. Fix default variant (fill holes with atlas default)
         for code in 0..65536 {
             if glyphset.luts[0][code] == UNMAPPED {
-                glyphset.luts[0][code] = default_global_id;
+                glyphset.luts[0][code] = glyphset.default_global_id;
             }
         }
         
@@ -331,12 +355,10 @@ impl Grids {
                 }
             }
         }
-        
-        self.glyphsets.insert(glyphset)
     }
     
     /// Вспомогательный метод для развертывания источника
-    fn expand_source(&self, source: &crate::atlas::SourceType) -> (Vec<String>, Vec<Option<u32>>) {
+    fn expand_source(source: &crate::atlas::SourceType) -> (Vec<String>, Vec<Option<u32>>) {
         match source {
             crate::atlas::SourceType::List(list) => {
                 // Список строк (виртуальные имена), коды пока неизвестны
@@ -396,7 +418,7 @@ impl Grids {
             .collect();
             
         for (_group_name, group_data) in groups {
-            let (names, mut codes) = self.expand_source(&group_data.source);
+            let (names, mut codes) = Self::expand_source(&group_data.source);
             
             // Resolve codes if needed (same logic as create_glyphset)
             if codes.iter().any(|c| c.is_none()) {
@@ -504,6 +526,11 @@ impl Grids {
         let fill = Character::blank(default_code);
         let buffer = Buffer::new(name, w, h, glyphset, 0, fill);
         self.buffers.insert(buffer)
+    }
+
+    /// Начать создание буфера через Builder
+    pub fn buffer(&mut self, name: impl Into<String>, w: u32, h: u32, glyphset: GlyphsetKey) -> BufferBuilder {
+        BufferBuilder::new(self, name, w, h, glyphset)
     }
     
     /// Создать буфер с заданным z_index
@@ -924,5 +951,67 @@ impl Grids {
 impl Default for Grids {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ============================================================================
+// Buffer Builder
+// ============================================================================
+
+pub struct BufferBuilder<'a> {
+    grids: &'a mut Grids,
+    name: String,
+    w: u32,
+    h: u32,
+    glyphset: GlyphsetKey,
+    z_index: i32,
+    visible: bool,
+    opacity: f32,
+    parent: Option<(BufferKey, u32, u32)>, // (parent_key, x, y)
+}
+
+impl<'a> BufferBuilder<'a> {
+    pub fn new(grids: &'a mut Grids, name: impl Into<String>, w: u32, h: u32, glyphset: GlyphsetKey) -> Self {
+        Self {
+            grids,
+            name: name.into(),
+            w, h, glyphset,
+            z_index: 0,
+            visible: true,
+            opacity: 1.0,
+            parent: None,
+        }
+    }
+
+    pub fn z_index(mut self, z: i32) -> Self {
+        self.z_index = z;
+        self
+    }
+
+    pub fn visible(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
+
+    pub fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+
+    pub fn attach_to(mut self, parent: BufferKey, x: u32, y: u32) -> Self {
+        self.parent = Some((parent, x, y));
+        self
+    }
+
+    pub fn build(self) -> BufferKey {
+        let key = self.grids.create_buffer_z(&self.name, self.w, self.h, self.glyphset, self.z_index);
+        self.grids.set_visible(key, self.visible);
+        self.grids.set_opacity(key, self.opacity);
+        
+        if let Some((parent, x, y)) = self.parent {
+            self.grids.attach_z(parent, (x, y), key, self.z_index);
+        }
+        
+        key
     }
 }

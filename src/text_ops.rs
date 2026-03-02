@@ -2,6 +2,27 @@ use raylib::prelude::Color;
 use crate::grids::Grids;
 use crate::types::{BufferKey, Blend, Mask, WriteDirection, Transform, Character};
 
+/// Трейт для аргументов печати: позволяет передавать просто строку или кортеж (строка, вариант)
+pub trait Printable {
+    fn content(&self) -> &str;
+    fn style_variant(&self) -> Option<&str>;
+}
+
+impl Printable for &str {
+    fn content(&self) -> &str { self }
+    fn style_variant(&self) -> Option<&str> { None }
+}
+
+impl Printable for String {
+    fn content(&self) -> &str { self }
+    fn style_variant(&self) -> Option<&str> { None }
+}
+
+impl Printable for (&str, &str) {
+    fn content(&self) -> &str { self.0 }
+    fn style_variant(&self) -> Option<&str> { Some(self.1) }
+}
+
 /// Трейт для операций вывода текста
 pub trait TextOps {
     fn write_string(
@@ -50,6 +71,9 @@ pub trait TextOps {
         fcolor: Color,
         bcolor: Color,
     );
+
+    /// Создать принтер для удобного вывода
+    fn print<'a>(&'a mut self, buffer: BufferKey) -> Printer<'a>;
 }
 
 impl TextOps for Grids {
@@ -203,5 +227,108 @@ impl TextOps for Grids {
                 buf.set(x, y, Character::new(code, default_variant_id, fcolor, bcolor));
              }
         }
+    }
+
+    fn print<'a>(&'a mut self, buffer: BufferKey) -> Printer<'a> {
+        Printer::new(self, buffer)
+    }
+}
+
+// ============================================================================
+// Stateful Printer
+// ============================================================================
+
+pub struct Printer<'a> {
+    grids: &'a mut Grids,
+    buffer: BufferKey,
+    x: u32,
+    y: u32,
+    origin_x: u32,
+    fg: Color,
+    bg: Color,
+    variant: Option<String>,
+}
+
+impl<'a> Printer<'a> {
+    pub fn new(grids: &'a mut Grids, buffer: BufferKey) -> Self {
+        Self {
+            grids,
+            buffer,
+            x: 0,
+            y: 0,
+            origin_x: 0,
+            fg: Color::WHITE,
+            bg: Color::BLANK,
+            variant: None,
+        }
+    }
+
+    pub fn at(mut self, x: u32, y: u32) -> Self {
+        self.x = x;
+        self.y = y;
+        self.origin_x = x;
+        self
+    }
+
+    pub fn color(mut self, fg: Color, bg: Color) -> Self {
+        self.fg = fg;
+        self.bg = bg;
+        self
+    }
+
+    pub fn fg(mut self, fg: Color) -> Self {
+        self.fg = fg;
+        self
+    }
+
+    pub fn bg(mut self, bg: Color) -> Self {
+        self.bg = bg;
+        self
+    }
+
+    pub fn variant(mut self, variant: &str) -> Self {
+        self.variant = Some(variant.to_string());
+        self
+    }
+
+    pub fn write(mut self, input: impl Printable) -> Self {
+        let text = input.content();
+        let variant_override = input.style_variant();
+        let active_variant = variant_override.or(self.variant.as_deref());
+
+        if let Some(v) = active_variant {
+            self.grids.write_string_variant(self.buffer, self.x, self.y, text, self.fg, self.bg, v);
+        } else {
+            self.grids.write_string(self.buffer, self.x, self.y, text, self.fg, self.bg);
+        }
+        
+        // Обновляем курсор
+        let start_x = self.x;
+        for ch in text.chars() {
+            if ch == '\n' {
+                self.y += 1;
+                self.x = start_x; // write_string сбрасывает X к началу вызова
+            } else {
+                self.x += 1;
+            }
+        }
+        self
+    }
+
+    pub fn ln(mut self) -> Self {
+        self.x = self.origin_x;
+        self.y += 1;
+        self
+    }
+
+    pub fn writeln(mut self, input: impl Printable) -> Self {
+        self = self.write(input);
+        self.ln()
+    }
+
+    pub fn icon(mut self, name: &str) -> Self {
+        self.grids.put_icon(self.buffer, self.x, self.y, name, self.fg, self.bg);
+        self.x += 1;
+        self
     }
 }

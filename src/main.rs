@@ -1,7 +1,8 @@
 use rand::Rng;
+use std::time::Instant;
+
 use raylib::prelude::*;
 
-// Используем модули из нашей библиотеки (предполагаем имя крейта "grids")
 use grids::VoidGrid;
 use grids::types::{Character, GlyphsetKey};
 use grids::text_ops::TextOps;
@@ -39,23 +40,22 @@ fn main() {
     let crt = vg.grids.load_atlas(&mut rl, &thread, "assets/crt.json")
         .expect("Failed to load CRT atlas");
     
-    let huge = vg.grids.load_atlas(&mut rl, &thread, "assets/huge.json")
-        .expect("Failed to load huge atlas");
 
     // Монтируем атласы в виртуальную файловую систему
     vg.grids.mount_atlas("fonts/crt", crt);
-    vg.grids.mount_atlas("fonts/huge", huge);
 
-    // Создаем Glyphsets (предполагаем наличие хелпера для создания из атласа)
-    let crt_gs = vg.grids.create_glyphset_from_atlas("crt", crt);
-    let huge_gs = vg.grids.create_glyphset_from_atlas("huge", huge);
-
+    // Создаем основной глифсет из CRT
+    let gs_crt = vg.grids.create_glyphset_from_atlas("composite", crt);
+    // "Вливаем" в него HUGE атлас (теперь в composite_gs есть и буквы CRT, и стрелки HUGE)
+    // vg.grids.merge_atlas(composite_gs, huge);
+   
     // Получаем размер тайла (теперь из Glyphset)
-    let (tile_w, tile_h) = vg.grids.glyphset_size(crt_gs).unwrap();
+    let (tile_w, tile_h) = vg.grids.glyphset_size(gs_crt).unwrap();
     
     // Корректируем размер окна
     let window_w = buf_w * tile_w;
     let window_h = buf_h * tile_h;
+
     rl.set_window_size(window_w as i32, window_h as i32);
 
     // ========================================================================
@@ -69,29 +69,39 @@ fn main() {
     // Создаём буферы
     // ========================================================================
     
-    let main_buf = vg.grids.create_buffer("main", buf_w, buf_h, crt_gs);
-    let back_buf = vg.grids.create_buffer("back", buf_w/4, buf_h/4, huge_gs);
-    vg.grids.set_buffer_z(back_buf, -1);
-    vg.grids.set_buffer_z(main_buf, 1);
+    // Используем BufferBuilder
+    let main_buf = vg.grids.buffer("main", buf_w, buf_h, gs_crt)
+        .z_index(1)
+        .build();
+        
+    let back_buf = vg.grids.buffer("back", buf_w, buf_h, gs_crt)
+        .z_index(-1)
+        .attach_to(main_buf, 0, 0)
+        .build();
     
     // Drop zone буфер (маленький, внизу)
-    let drop_zone_buf = vg.grids.create_buffer("drop_zone", 40, 1, crt_gs);
+    let drop_zone_buf = vg.grids.buffer("drop_zone", 40, 1, gs_crt)
+        .z_index(100)
+        .attach_to(main_buf, 2, buf_h - 2)
+        .build();
     
     // Буфер с шейдером chromatic aberration
-    let shader_demo_buf = vg.grids.create_buffer("shader_demo", 40, 1, crt_gs);
-    vg.renderer.set_buffer_shader_padded(&mut rl, &thread, &vg.grids, shader_demo_buf, chromatic_shader, 4);
-
-    // Привязываем дочерние буферы
-    vg.grids.attach(main_buf, (0, 0), back_buf);
-    vg.grids.attach_z(main_buf, (2, buf_h - 2), drop_zone_buf, 100);
-    // Буфер с шейдером теперь тоже в иерархии!
-    vg.grids.attach(main_buf, (4, 9), shader_demo_buf);
+    let shader_demo_buf = vg.grids.buffer("shader_demo", 40, 1, gs_crt)
+        .attach_to(main_buf, 4, 9)
+        .build();
+        
+    vg.renderer.attach_shader(&mut rl, &thread, &vg.grids, shader_demo_buf, chromatic_shader, 4);
     
     // Drop zone state
     let mut drop_zone = DropZone::new();
 
     // Выводим содержимое реестра для отладки
     vg.grids.debug_print_registry();
+
+
+    let mut start_time: Instant;
+    start_time = Instant::now();
+    let current_time = start_time.elapsed().as_secs_f32();
 
     // ========================================================================
     // ГЛАВНЫЙ ЦИКЛ
@@ -123,7 +133,7 @@ fn main() {
                 buf_h = new_buf_h.max(1);
                 
                 let _ = vg.grids.resize_buffer(main_buf, buf_w, buf_h);
-                let _ = vg.grids.resize_buffer(back_buf, buf_w/4, buf_h/4);
+                let _ = vg.grids.resize_buffer(back_buf, buf_w, buf_h);
 
                 // Обновляем текстуры шейдеров, если размеры буферов изменились
                 // (в данном примере shader_demo_buf не меняет размер, но если бы менял - нужно вызвать это)
@@ -145,20 +155,23 @@ fn main() {
         }
         
         // --- Основной текст ---
-        vg.grids.write_string(
-            main_buf, 4, 4,
-            "TWELVE CATHODE TELEVISION\nTUBES FLICKERING NAKEDLY\nON ONE SIDE AND FOUR SPEAKERS\nHUMMING ON THE OTHER...",
-            Color::new(0, 255, 127, 255),
-            Color::BLANK,
-        );
+        // Используем Printer
+        vg.grids.print(main_buf)
+            .at(4, 18)
+            .fg(Color::new(0, 255, 127, 255))
+            .writeln("TWELVE CATHODE TELEVISION")
+            .write("TUBES ").write(("FLICKERING", "inverted")).writeln(" NAKEDLY")
+            .writeln("ON ONE SIDE AND FOUR SPEAKERS")
+            .writeln("HUMMING ON THE OTHER...");
         
         // --- Буфер с шейдером ---
-        vg.grids.write_string(
-            shader_demo_buf, 0, 0,
-            " THIS TEXT HAS CHROMATIC ABERRATION ",
-            Color::new(255, 255, 255, 255),
-            Color::new(40, 40, 80, 255),
-        );
+
+        let current_time = start_time.elapsed().as_secs_f32();
+        let status_text = format!("VOIDGRID // {}", current_time);
+
+        vg.grids.print(shader_demo_buf)
+            .color(Color::WHITE, Color::new(16, 16, 16, 255))
+            .write(status_text);
 
         // --- Фоновый буфер — случайные глифы ---
         let rx = rand::rng().random_range(0..16);
@@ -168,12 +181,14 @@ fn main() {
         // Character::new теперь принимает (code, variant_id, fg, bg)
         vg.grids.set_char(back_buf, rx, ry, Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK));
 
-        // --- Демонстрация иконок (стрелки из huge.json) ---
-        // back_buf использует huge_gs, в котором определена группа "arrows"
-        vg.grids.put_icon(back_buf, 0, 0, "arrow_left", Color::YELLOW, Color::BLANK);
-        vg.grids.put_icon(back_buf, 1, 0, "arrow_right", Color::YELLOW, Color::BLANK);
-        vg.grids.put_icon(back_buf, 2, 0, "arrow_up", Color::YELLOW, Color::BLANK);
-        vg.grids.put_icon(back_buf, 3, 0, "arrow_down", Color::YELLOW, Color::BLANK);
+        // --- Демонстрация Composite Glyphset ---
+        // main_buf использует composite_gs, в который мы влили huge (стрелки)
+        // Теперь мы можем рисовать стрелки прямо в main_buf, хотя они из другого атласа!
+        // vg.grids.print(main_buf)
+        //     .at(0, 12).fg(Color::YELLOW)
+        //     .icon("arrow_left").write(" ")
+        //     .icon("arrow_right").write(" ")
+        //     .icon("arrow_up");
 
         // --- Drop zone буфер ---
         {
@@ -196,7 +211,7 @@ fn main() {
         // --- Отрисовка ---
         
         // Анимируем смещение chromatic aberration
-        let aberration = (vg.renderer.shader_time() * 3.0).sin() * 2.0 + 3.0; // от 1 до 5 пикселей
+        let aberration = (vg.renderer.shader_time() * 3.0).sin() * 1.5 + 1.5; // от 1 до 5 пикселей
         vg.grids.set_shader_float(chromatic_shader, "offset", aberration);
         
         // Двухпроходный рендер: сначала буферы с шейдерами в их текстуры

@@ -83,7 +83,7 @@ impl Renderer {
     }
 
     /// Установить шейдер для буфера с padding
-    pub fn set_buffer_shader_padded(
+    pub fn attach_shader(
         &mut self,
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
@@ -127,7 +127,7 @@ impl Renderer {
             let shader = data.shader;
             let padding = data.padding;
             // Пересоздаём текстуру с новым размером
-            self.set_buffer_shader_padded(rl, thread, grids, buffer, shader, padding);
+            self.attach_shader(rl, thread, grids, buffer, shader, padding);
         }
     }
 
