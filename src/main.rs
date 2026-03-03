@@ -9,6 +9,24 @@ use grids::text_ops::TextOps;
 use grids::input::{WindowChrome, DropZone};
 
 fn main() {
+
+
+    puffin::set_scopes_on(true);
+    
+    // Запускаем сервер на порту 8585
+    let _puffin_server = match puffin_http::Server::new("127.0.0.1:8585") {
+        Ok(server) => {
+            println!("Puffin server started on http://127.0.0.1:8585");
+            Some(server)
+        }
+        Err(err) => {
+            eprintln!("Failed to start puffin server: {}", err);
+            None
+        }
+    };
+
+
+
     // Начальные размеры буфера в символах
     let mut buf_w: u32 = 64;
     let mut buf_h: u32 = 32;
@@ -21,7 +39,7 @@ fn main() {
         .resizable()
         .build();
     
-    rl.set_target_fps(60);
+    // rl.set_target_fps(60);
     
     // Window chrome (кнопки закрытия, maximize и drag handle)
     let mut chrome = WindowChrome::new(800, 600);
@@ -108,6 +126,8 @@ fn main() {
     // ========================================================================
     while !rl.window_should_close() {
         
+        puffin::GlobalProfiler::lock().new_frame();
+        puffin::profile_scope!("Main Loop");
         // --- Очистка буферов ---
         vg.grids.clear_buffer(main_buf);
         vg.grids.clear_buffer(drop_zone_buf);
@@ -220,7 +240,7 @@ fn main() {
         }
 
         // --- Отрисовка ---
-        
+        puffin::profile_scope!("Prepare Render");
         // Анимируем смещение chromatic aberration
         let aberration = (vg.renderer.shader_time() * 3.0).sin() * 1.5 + 1.5; // от 1 до 5 пикселей
         vg.grids.set_shader_float(chromatic_shader, "offset", aberration);
@@ -232,7 +252,7 @@ fn main() {
         {
             let mut d = rl.begin_drawing(&thread);
             d.clear_background(Color::new(8, 8, 8, 255));
-            
+            puffin::profile_scope!("Offscreen Render");
             // draw рисует дерево + применяет шейдеры к буферам (через фасад)
             vg.draw(&mut d, main_buf, 0, 0);
             
