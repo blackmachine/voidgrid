@@ -48,7 +48,7 @@ impl VoidGrid {
     
     /// Предварительный рендер (для шейдеров)
     pub fn render_offscreen(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, root: BufferKey, screen_x: i32, screen_y: i32) {
-        self.renderer.render_offscreen(rl, thread, &self.grids, root, screen_x, screen_y);
+        self.renderer.render_offscreen(rl, thread, &mut self.grids, root, screen_x, screen_y);
     }
 }
 

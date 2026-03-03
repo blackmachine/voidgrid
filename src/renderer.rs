@@ -5,14 +5,24 @@ use raylib::prelude::*;
 use raylib::ffi::{
     BeginBlendMode, EndBlendMode,
     rlBegin, rlEnd, rlColor4ub, rlTexCoord2f, rlVertex2f, rlSetTexture,
-    rlGetTextureIdDefault, RL_QUADS,
+    rlGetTextureIdDefault, rlPushMatrix, rlPopMatrix, rlTranslatef,
+    RL_QUADS,
 };
 
 use crate::grids::Grids;
-use crate::types::{BufferKey, ShaderKey, Blend};
+use crate::types::{BufferKey, ShaderKey, Blend, GlyphsetKey};
 use crate::types::Rotation;
 /// Максимальная глубина вложенности буферов
 const MAX_BUFFER_DEPTH: u8 = 8;
+
+/// Кэшированный батч отрисовки
+struct Batch {
+    texture_id: u32,
+    blend: Blend,
+    vertices: Vec<f32>,   // x, y (local)
+    texcoords: Vec<f32>,  // u, v
+    colors: Vec<Color>,   // Base color (without opacity applied)
+}
 
 /// Данные буферного шейдера (RenderTexture + настройки)
 pub struct BufferShaderData {
@@ -38,6 +48,9 @@ pub struct Renderer {
 
     // Buffer shaders
     buffer_shaders: HashMap<BufferKey, BufferShaderData>,
+    
+    // Geometry Cache
+    buffer_batches: HashMap<BufferKey, Vec<Batch>>,
 
     // Time tracking
     start_time: Instant,
@@ -57,6 +70,7 @@ impl Renderer {
             loc_bg_color: -1,
             post_process_texture: None,
             buffer_shaders: HashMap::new(),
+            buffer_batches: HashMap::new(),
             start_time: Instant::now(),
             current_time: 0.0,
         }
@@ -147,7 +161,7 @@ impl Renderer {
         &mut self,
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
-        grids: &Grids,
+        grids: &mut Grids,
         root: BufferKey,
         screen_x: i32,
         screen_y: i32,
@@ -171,7 +185,7 @@ impl Renderer {
                 let mut texture_d = rl.begin_texture_mode(thread, rt);
                 texture_d.clear_background(Color::BLANK);
                 // Рисуем буфер в текстуру
-                self.draw_single_buffer(&mut texture_d, grids, *buffer_key, padding, padding, 1.0);
+                self.draw_single_buffer(&mut texture_d, grids, *buffer_key, padding, padding, 1.0, true);
             }
         }
     }
@@ -344,82 +358,151 @@ impl Renderer {
     }
 
     fn draw_single_buffer<D: RaylibDraw>(
-        &self,
-        d: &mut D,
-        grids: &Grids,
+        &mut self,
+        _d: &mut D,
+        grids: &mut Grids,
         buffer_key: BufferKey,
         screen_x: i32,
         screen_y: i32,
         opacity: f32,
-        // Note: We use raw rlgl calls here for batching performance
+        force_rebuild: bool,
+    ) {
+        // 1. Check if we need to rebuild the cache
+        let (is_dirty, glyphset_key, buf_w, buf_h) = if let Some(buf) = grids.buffers.get(buffer_key) {
+            if !buf.visible { return; }
+            (buf.dirty || force_rebuild, buf.glyphset(), buf.w, buf.h)
+        } else {
+            return;
+        };
+
+        if is_dirty || !self.buffer_batches.contains_key(&buffer_key) {
+            self.rebuild_buffer_batch(grids, buffer_key, glyphset_key, buf_w, buf_h);
+            if let Some(buf) = grids.buffers.get_mut(buffer_key) {
+                buf.dirty = false;
+            }
+        }
+
+        // 2. Draw from cache
+        if let Some(batches) = self.buffer_batches.get(&buffer_key) {
+            let effective_opacity = opacity; // We assume buffer.opacity is handled by caller or baked? 
+            // Actually caller passes: parent_opacity * buffer.opacity.
+            // We apply this to the cached colors.
+
+            unsafe {
+                rlPushMatrix();
+                rlTranslatef(screen_x as f32, screen_y as f32, 0.0);
+
+                for batch in batches {
+                    // Setup state
+                    rlSetTexture(batch.texture_id);
+                    BeginBlendMode(batch.blend.to_ffi());
+                    rlBegin(RL_QUADS as i32);
+
+                    let count = batch.vertices.len() / 2;
+                    for i in 0..count {
+                        let col = &batch.colors[i];
+                        // Apply dynamic opacity to cached color
+                        let alpha = (col.a as f32 * effective_opacity) as u8;
+                        
+                        rlColor4ub(col.r, col.g, col.b, alpha);
+                        rlTexCoord2f(batch.texcoords[i*2], batch.texcoords[i*2+1]);
+                        rlVertex2f(batch.vertices[i*2], batch.vertices[i*2+1]);
+                    }
+
+                    rlEnd();
+                    EndBlendMode();
+                }
+
+                rlPopMatrix();
+            }
+        }
+    }
+
+    fn rebuild_buffer_batch(
+        &mut self,
+        grids: &Grids,
+        buffer_key: BufferKey,
+        glyphset_key: GlyphsetKey,
+        w: u32,
+        h: u32,
     ) {
         let buffer = match grids.buffers.get(buffer_key) {
             Some(b) => b,
             None => return,
         };
         
-        if !buffer.visible { return; }
-        
-        let glyphset = match grids.glyphsets.get(buffer.glyphset()) {
+        let glyphset = match grids.glyphsets.get(glyphset_key) {
             Some(g) => g,
             None => return,
         };
         
-        let effective_opacity = opacity * buffer.opacity;
         let tile_w = glyphset.tile_w as f32;
         let tile_h = glyphset.tile_h as f32;
 
+        let mut batches: Vec<Batch> = Vec::new();
+        
         // --- PASS 1: BACKGROUNDS ---
-        // Backgrounds are just colored quads. We can draw them all in one go
-        // using the default white texture.
-        unsafe {
-            rlBegin(RL_QUADS as i32);
-            rlSetTexture(rlGetTextureIdDefault());
-            
-            // We assume Alpha blending for backgrounds for now, or we could switch.
-            // For optimization, we batch all backgrounds.
-            // If specific blending is needed per cell, we might need to break batch,
-            // but usually backgrounds are simple.
-            
-            for y in 0..buffer.h {
-                for x in 0..buffer.w {
-                    if let Some(ch) = buffer.get_char_ref(x, y) {
-                        let bg_alpha = (ch.bcolor.a as f32 * effective_opacity) as u8;
-                        if bg_alpha > 0 {
-                            let dst_x = screen_x as f32 + (x as f32 * tile_w);
-                            let dst_y = screen_y as f32 + (y as f32 * tile_h);
-                            
-                            rlColor4ub(ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, bg_alpha);
-                            rlTexCoord2f(0.0, 0.0); // Center of white pixel
-                            
-                            // Quad vertices (Counter-clockwise or Raylib order: TL, BL, BR, TR)
-                            rlVertex2f(dst_x, dst_y);
-                            rlVertex2f(dst_x, dst_y + tile_h);
-                            rlVertex2f(dst_x + tile_w, dst_y + tile_h);
-                            rlVertex2f(dst_x + tile_w, dst_y);
-                        }
+        let mut bg_verts = Vec::new();
+        let mut bg_uvs = Vec::new();
+        let mut bg_cols = Vec::new();
+
+        for y in 0..h {
+            for x in 0..w {
+                if let Some(ch) = buffer.get_char_ref(x, y) {
+                    if ch.bcolor.a > 0 {
+                        let dst_x = x as f32 * tile_w;
+                        let dst_y = y as f32 * tile_h;
+                        
+                        // 4 vertices
+                        bg_verts.push(dst_x); bg_verts.push(dst_y);
+                        bg_verts.push(dst_x); bg_verts.push(dst_y + tile_h);
+                        bg_verts.push(dst_x + tile_w); bg_verts.push(dst_y + tile_h);
+                        bg_verts.push(dst_x + tile_w); bg_verts.push(dst_y);
+                        
+                        // 4 UVs (center of white pixel)
+                        for _ in 0..4 { bg_uvs.push(0.0); bg_uvs.push(0.0); }
+                        
+                        // 4 Colors
+                        for _ in 0..4 { bg_cols.push(ch.bcolor); }
                     }
                 }
             }
-            rlEnd();
+        }
+        
+        if !bg_verts.is_empty() {
+            batches.push(Batch {
+                texture_id: unsafe { rlGetTextureIdDefault() },
+                blend: Blend::Alpha, // Assuming alpha for BG
+                vertices: bg_verts,
+                texcoords: bg_uvs,
+                colors: bg_cols,
+            });
         }
 
-        // --- PASS 2: FOREGROUNDS (GLYPHS) ---
-        // We need to group by (Texture, BlendMode) to minimize draw calls.
-        
-        let mut current_texture_id: u32 = 0;
+        // --- PASS 2: FOREGROUNDS ---
+        // Temporary storage for current batch
+        let mut current_tex = 0;
         let mut current_blend = Blend::Alpha;
-        let mut batch_active = false;
+        let mut fg_verts = Vec::new();
+        let mut fg_uvs = Vec::new();
+        let mut fg_cols = Vec::new();
 
-        // Start with default blend
-        unsafe { BeginBlendMode(current_blend.to_ffi()); }
+        let flush_batch = |batches: &mut Vec<Batch>, tex: u32, blend: Blend, v: &mut Vec<f32>, uv: &mut Vec<f32>, c: &mut Vec<Color>| {
+            if !v.is_empty() {
+                batches.push(Batch {
+                    texture_id: tex,
+                    blend,
+                    vertices: std::mem::take(v),
+                    texcoords: std::mem::take(uv),
+                    colors: std::mem::take(c),
+                });
+            }
+        };
 
-        for y in 0..buffer.h {
-            for x in 0..buffer.w {
+        for y in 0..h {
+            for x in 0..w {
                 if let Some(ch) = buffer.get_char_ref(x, y) {
-                    let fg_alpha = (ch.fcolor.a as f32 * effective_opacity) as u8;
-                    
-                    if fg_alpha == 0 { continue; }
+                    if ch.fcolor.a == 0 { continue; }
 
                     // Resolve global_id and Atlas
                     let global_id = glyphset.luts.get(ch.variant_id as usize)
@@ -432,35 +515,16 @@ impl Renderer {
                     let (src, _, _) = atlas.get_glyph_source(physical_glyph);
                     let tex_id = atlas.texture.id;
                     
-                    // Check state changes
-                    if tex_id != current_texture_id || ch.fg_blend != current_blend {
-                        if batch_active {
-                            unsafe { rlEnd(); }
-                            batch_active = false;
-                        }
-                        
-                        if ch.fg_blend != current_blend {
-                            unsafe {
-                                EndBlendMode();
-                                BeginBlendMode(ch.fg_blend.to_ffi());
-                            }
-                            current_blend = ch.fg_blend;
-                        }
-                        
-                        if tex_id != current_texture_id {
-                            unsafe { rlSetTexture(tex_id); }
-                            current_texture_id = tex_id;
-                        }
-                    }
-                    
-                    if !batch_active {
-                        unsafe { rlBegin(RL_QUADS as i32); }
-                        batch_active = true;
+                    // State change check
+                    if tex_id != current_tex || ch.fg_blend != current_blend {
+                        flush_batch(&mut batches, current_tex, current_blend, &mut fg_verts, &mut fg_uvs, &mut fg_cols);
+                        current_tex = tex_id;
+                        current_blend = ch.fg_blend;
                     }
                     
                     // Calculate Vertices & UVs
-                    let dst_x = screen_x as f32 + (x as f32 * tile_w);
-                    let dst_y = screen_y as f32 + (y as f32 * tile_h);
+                    let dst_x = x as f32 * tile_w;
+                    let dst_y = y as f32 * tile_h;
                     
                     // UVs
                     let (tex_w, tex_h) = atlas.texture_size();
@@ -502,35 +566,30 @@ impl Renderer {
                         v_tr = rotate(v_tr);
                     }
                     
-                    unsafe {
-                        rlColor4ub(ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, fg_alpha);
-                        
-                        rlTexCoord2f(u_min, v_min);
-                        rlVertex2f(dst_x + v_tl.0, dst_y + v_tl.1);
-                        
-                        rlTexCoord2f(u_min, v_max);
-                        rlVertex2f(dst_x + v_bl.0, dst_y + v_bl.1);
-                        
-                        rlTexCoord2f(u_max, v_max);
-                        rlVertex2f(dst_x + v_br.0, dst_y + v_br.1);
-                        
-                        rlTexCoord2f(u_max, v_min);
-                        rlVertex2f(dst_x + v_tr.0, dst_y + v_tr.1);
-                    }
+                    fg_cols.push(ch.fcolor); fg_cols.push(ch.fcolor); fg_cols.push(ch.fcolor); fg_cols.push(ch.fcolor);
+                    
+                    fg_uvs.push(u_min); fg_uvs.push(v_min);
+                    fg_uvs.push(u_min); fg_uvs.push(v_max);
+                    fg_uvs.push(u_max); fg_uvs.push(v_max);
+                    fg_uvs.push(u_max); fg_uvs.push(v_min);
+                    
+                    fg_verts.push(dst_x + v_tl.0); fg_verts.push(dst_y + v_tl.1);
+                    fg_verts.push(dst_x + v_bl.0); fg_verts.push(dst_y + v_bl.1);
+                    fg_verts.push(dst_x + v_br.0); fg_verts.push(dst_y + v_br.1);
+                    fg_verts.push(dst_x + v_tr.0); fg_verts.push(dst_y + v_tr.1);
                 }
             }
         }
         
-        unsafe {
-            if batch_active { rlEnd(); }
-            EndBlendMode();
-        }
+        flush_batch(&mut batches, current_tex, current_blend, &mut fg_verts, &mut fg_uvs, &mut fg_cols);
+        
+        self.buffer_batches.insert(buffer_key, batches);
     }
 
     fn draw_internal_skip_shaders<D: RaylibDraw>(
-        &self,
+        &mut self,
         d: &mut D,
-        grids: &Grids,
+        grids: &mut Grids,
         buffer_key: BufferKey,
         screen_x: i32,
         screen_y: i32,
@@ -539,28 +598,46 @@ impl Renderer {
     ) {
         if depth == 0 { return; }
         
-        let buffer = match grids.buffers.get(buffer_key) {
-            Some(b) => b,
-            None => return,
+        // let buffer = match grids.buffers.get(buffer_key) {
+        //     Some(b) => b,
+        //     None => return,
+        let (visible, opacity, glyphset_key) = if let Some(buf) = grids.buffers.get(buffer_key) {
+            (buf.visible, buf.opacity, buf.glyphset())
+        } else {
+            return;
+
+        };
+         
+        
+        // if !buffer.visible { return; }
+        
+        // let gs = match grids.glyphsets.get(buffer.glyphset()) {
+        //     Some(g) => g,
+        //     None => return,
+        // };
+        
+        if !visible {return;}
+
+        let (tile_w, tile_h) = if let Some(gs) = grids.glyphsets.get(glyphset_key) {
+            (gs.tile_w as f32, gs.tile_h as f32)
+        } else {
+            return;
         };
         
-        if !buffer.visible { return; }
-        
-        let gs = match grids.glyphsets.get(buffer.glyphset()) {
-            Some(g) => g,
-            None => return,
-        };
-        
-        let effective_opacity = parent_opacity * buffer.opacity;
-        let tile_w = gs.tile_w as f32;
-        let tile_h = gs.tile_h as f32;
+
+        // let effective_opacity = parent_opacity * buffer.opacity;
+        // let tile_w = gs.tile_w as f32;
+        // let tile_h = gs.tile_h as f32;
+        let effective_opacity = parent_opacity * opacity;
+
         
         if !self.buffer_shaders.contains_key(&buffer_key) {
-            self.draw_single_buffer(d, grids, buffer_key, screen_x, screen_y, effective_opacity);
+            self.draw_single_buffer(d, grids, buffer_key, screen_x, screen_y, effective_opacity, false);
         }
         
         let mut children: Vec<_> = grids.attachments.iter()
             .filter(|a| a.parent == buffer_key)
+            .cloned()
             .collect();
         children.sort_by_key(|a| a.z_index);
         

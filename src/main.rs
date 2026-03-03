@@ -38,7 +38,7 @@ fn main() {
         .undecorated()
         .resizable()
         .build();
-    
+
     // rl.set_target_fps(60);
     
     // Window chrome (кнопки закрытия, maximize и drag handle)

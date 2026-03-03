@@ -10,6 +10,7 @@ pub struct Buffer {
     pub default_variant_id: u8,
     pub(crate) data: Vec<Character>,
     pub(crate) glyphset: GlyphsetKey,
+    pub(crate) dirty: bool,
 }
 
 impl std::fmt::Debug for Buffer {
@@ -32,6 +33,7 @@ impl Buffer {
             opacity: 1.0,
             default_variant_id: 0,
             data: vec![fill; size],
+            dirty: true,
             glyphset,
         }
     }
@@ -44,6 +46,7 @@ impl Buffer {
 
     pub fn set(&mut self, x: u32, y: u32, ch: Character) {
         if let Some(i) = self.index(x, y) {
+            self.dirty = true;
             self.data[i] = ch;
         }
     }
@@ -57,6 +60,7 @@ impl Buffer {
     }
     
     pub fn clear(&mut self, fill: Character) {
+        self.dirty = true;
         self.data.fill(fill);
     }
 
@@ -65,6 +69,7 @@ impl Buffer {
     }
     
     pub fn set_glyphset(&mut self, glyphset: GlyphsetKey) {
+        self.dirty = true;
         self.glyphset = glyphset;
     }
 }

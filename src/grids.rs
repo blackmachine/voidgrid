@@ -588,6 +588,7 @@ impl Grids {
         } else { 0 };
 
         if let Some(buf) = self.buffers.get_mut(key) {
+            buf.dirty = true;
             buf.default_variant_id = variant_id;
         }
     }
@@ -616,6 +617,7 @@ impl Grids {
             buf.data = vec![fill; (new_w * new_h) as usize];
             buf.w = new_w;
             buf.h = new_h;
+            buf.dirty = true;
             
             // Копируем что влезает
             for y in 0..old_h.min(new_h) {
@@ -742,6 +744,7 @@ impl Grids {
     pub fn set_char_transform(&mut self, buffer: BufferKey, x: u32, y: u32, transform: Transform) {
         if let Some(buf) = self.buffers.get_mut(buffer) {
             if let Some(i) = buf.index(x, y) {
+                buf.dirty = true;
                 buf.data[i].transform = transform;
             }
         }
@@ -751,6 +754,7 @@ impl Grids {
     pub fn set_char_mask(&mut self, buffer: BufferKey, x: u32, y: u32, mask: Option<Mask>) {
         if let Some(buf) = self.buffers.get_mut(buffer) {
             if let Some(i) = buf.index(x, y) {
+                buf.dirty = true;
                 buf.data[i].mask = mask;
             }
         }
@@ -760,6 +764,7 @@ impl Grids {
     pub fn set_char_blend(&mut self, buffer: BufferKey, x: u32, y: u32, fg_blend: Blend, bg_blend: Blend) {
         if let Some(buf) = self.buffers.get_mut(buffer) {
             if let Some(i) = buf.index(x, y) {
+                buf.dirty = true;
                 buf.data[i].fg_blend = fg_blend;
                 buf.data[i].bg_blend = bg_blend;
             }
@@ -769,6 +774,7 @@ impl Grids {
     /// Установить blend mode для области
     pub fn set_area_blend(&mut self, buffer: BufferKey, x: u32, y: u32, w: u32, h: u32, fg_blend: Blend, bg_blend: Blend) {
         if let Some(buf) = self.buffers.get_mut(buffer) {
+            buf.dirty = true;
             for cy in y..y + h {
                 for cx in x..x + w {
                     if let Some(i) = buf.index(cx, cy) {
@@ -783,6 +789,7 @@ impl Grids {
     /// Установить маску для области
     pub fn set_area_mask(&mut self, buffer: BufferKey, x: u32, y: u32, w: u32, h: u32, mask: Option<Mask>) {
         if let Some(buf) = self.buffers.get_mut(buffer) {
+            buf.dirty = true;
             for cy in y..y + h {
                 for cx in x..x + w {
                     if let Some(i) = buf.index(cx, cy) {
@@ -796,6 +803,7 @@ impl Grids {
     /// Установить трансформацию для области
     pub fn set_area_transform(&mut self, buffer: BufferKey, x: u32, y: u32, w: u32, h: u32, transform: Transform) {
         if let Some(buf) = self.buffers.get_mut(buffer) {
+            buf.dirty = true;
             for cy in y..y + h {
                 for cx in x..x + w {
                     if let Some(i) = buf.index(cx, cy) {
