@@ -593,6 +593,13 @@ impl Grids {
         }
     }
     
+    /// Установить режим динамического обновления (отключает кэширование VBO)
+    pub fn set_buffer_dynamic(&mut self, key: BufferKey, dynamic: bool) {
+        if let Some(buf) = self.buffers.get_mut(key) {
+            buf.dynamic = dynamic;
+        }
+    }
+
     /// Установить z_index буфера
     pub fn set_buffer_z(&mut self, key: BufferKey, z_index: i32) {
         if let Some(buf) = self.buffers.get_mut(key) {
@@ -973,6 +980,7 @@ pub struct BufferBuilder<'a> {
     h: u32,
     glyphset: GlyphsetKey,
     z_index: i32,
+    dynamic: bool,
     visible: bool,
     opacity: f32,
     parent: Option<(BufferKey, u32, u32)>, // (parent_key, x, y)
@@ -985,6 +993,7 @@ impl<'a> BufferBuilder<'a> {
             name: name.into(),
             w, h, glyphset,
             z_index: 0,
+            dynamic: false,
             visible: true,
             opacity: 1.0,
             parent: None,
@@ -993,6 +1002,11 @@ impl<'a> BufferBuilder<'a> {
 
     pub fn z_index(mut self, z: i32) -> Self {
         self.z_index = z;
+        self
+    }
+
+    pub fn dynamic(mut self, dynamic: bool) -> Self {
+        self.dynamic = dynamic;
         self
     }
 
@@ -1013,6 +1027,7 @@ impl<'a> BufferBuilder<'a> {
 
     pub fn build(self) -> BufferKey {
         let key = self.grids.create_buffer_z(&self.name, self.w, self.h, self.glyphset, self.z_index);
+        self.grids.set_buffer_dynamic(key, self.dynamic);
         self.grids.set_visible(key, self.visible);
         self.grids.set_opacity(key, self.opacity);
         

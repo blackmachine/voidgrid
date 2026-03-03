@@ -4,7 +4,8 @@ use std::time::Instant;
 use raylib::prelude::*;
 use raylib::ffi::{
     BeginBlendMode, EndBlendMode,
-    rlGetTextureIdDefault,
+    rlGetTextureIdDefault, rlBegin, rlEnd, rlColor4ub, rlTexCoord2f, rlVertex2f, rlSetTexture,
+    RL_QUADS,
     Mesh, Material,
     UploadMesh, UnloadMesh, DrawMesh, UpdateMeshBuffer,
     LoadMaterialDefault,
@@ -402,20 +403,28 @@ impl Renderer {
         opacity: f32,
         force_rebuild: bool,
     ) {
+        // 1. Check buffer state
+        let (is_dirty, glyphset_key, buf_w, buf_h, is_dynamic) = if let Some(buf) = grids.buffers.get(buffer_key) {
+            if !buf.visible { return; }
+            (buf.dirty || force_rebuild, buf.glyphset(), buf.w, buf.h, buf.dynamic)
+        } else {
+            return;
+        };
+
+        // --- PATH A: IMMEDIATE MODE (Dynamic) ---
+        if is_dynamic {
+            self.draw_immediate(grids, buffer_key, glyphset_key, buf_w, buf_h, opacity, screen_x, screen_y);
+            return;
+        }
+
+        // --- PATH B: CACHED MESH (Static) ---
+        
         // Ensure default material is loaded (lazy init)
         if self.default_material.is_none() {
             unsafe {
                 self.default_material = Some(LoadMaterialDefault());
             }
         }
-
-        // 1. Check if we need to rebuild the cache
-        let (is_dirty, glyphset_key, buf_w, buf_h) = if let Some(buf) = grids.buffers.get(buffer_key) {
-            if !buf.visible { return; }
-            (buf.dirty || force_rebuild, buf.glyphset(), buf.w, buf.h)
-        } else {
-            return;
-        };
 
         if is_dirty || !self.buffer_batches.contains_key(&buffer_key) {
             self.rebuild_buffer_batch(grids, buffer_key, glyphset_key, buf_w, buf_h);
@@ -454,6 +463,120 @@ impl Renderer {
                     }
                 }
             }
+        }
+    }
+    
+    fn draw_immediate(
+        &self,
+        grids: &Grids,
+        buffer_key: BufferKey,
+        glyphset_key: GlyphsetKey,
+        w: u32,
+        h: u32,
+        opacity: f32,
+        screen_x: i32,
+        screen_y: i32,
+    ) {
+        let buffer = match grids.buffers.get(buffer_key) {
+            Some(b) => b,
+            None => return,
+        };
+        let glyphset = match grids.glyphsets.get(glyphset_key) {
+            Some(g) => g,
+            None => return,
+        };
+        
+        let tile_w = glyphset.tile_w as f32;
+        let tile_h = glyphset.tile_h as f32;
+        let effective_opacity = opacity * buffer.opacity;
+
+        // --- PASS 1: BACKGROUNDS ---
+        unsafe {
+            rlBegin(RL_QUADS as i32);
+            rlSetTexture(rlGetTextureIdDefault());
+            
+            for y in 0..h {
+                for x in 0..w {
+                    if let Some(ch) = buffer.get_char_ref(x, y) {
+                        let bg_alpha = (ch.bcolor.a as f32 * effective_opacity) as u8;
+                        if bg_alpha > 0 {
+                            let dst_x = screen_x as f32 + (x as f32 * tile_w);
+                            let dst_y = screen_y as f32 + (y as f32 * tile_h);
+                            
+                            rlColor4ub(ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, bg_alpha);
+                            rlTexCoord2f(0.0, 0.0);
+                            rlVertex2f(dst_x, dst_y);
+                            rlVertex2f(dst_x, dst_y + tile_h);
+                            rlVertex2f(dst_x + tile_w, dst_y + tile_h);
+                            rlVertex2f(dst_x + tile_w, dst_y);
+                        }
+                    }
+                }
+            }
+            rlEnd();
+        }
+
+        // --- PASS 2: FOREGROUNDS ---
+        let mut current_tex = 0;
+        let mut current_blend = Blend::Alpha;
+        let mut batch_active = false;
+
+        unsafe { BeginBlendMode(current_blend.to_ffi()); }
+
+        for y in 0..h {
+            for x in 0..w {
+                if let Some(ch) = buffer.get_char_ref(x, y) {
+                    let fg_alpha = (ch.fcolor.a as f32 * effective_opacity) as u8;
+                    if fg_alpha == 0 { continue; }
+
+                    let global_id = glyphset.luts.get(ch.variant_id as usize)
+                        .and_then(|lut: &Vec<u32>| lut.get(ch.code as usize))
+                        .copied()
+                        .unwrap_or(glyphset.default_global_id);
+                    
+                    let (atlas_key, physical_glyph) = grids.global_registry.entries[global_id as usize];
+                    let atlas = &grids.atlases[atlas_key];
+                    let (src, _, _) = atlas.get_glyph_source(physical_glyph);
+                    let tex_id = atlas.texture.id;
+
+                    if tex_id != current_tex || ch.fg_blend != current_blend {
+                        if batch_active { unsafe { rlEnd(); } batch_active = false; }
+                        if ch.fg_blend != current_blend {
+                            unsafe { EndBlendMode(); BeginBlendMode(ch.fg_blend.to_ffi()); }
+                            current_blend = ch.fg_blend;
+                        }
+                        if tex_id != current_tex {
+                            unsafe { rlSetTexture(tex_id); }
+                            current_tex = tex_id;
+                        }
+                    }
+
+                    if !batch_active { unsafe { rlBegin(RL_QUADS as i32); } batch_active = true; }
+
+                    let dst_x = screen_x as f32 + (x as f32 * tile_w);
+                    let dst_y = screen_y as f32 + (y as f32 * tile_h);
+                    let (tex_w, tex_h) = atlas.texture_size();
+                    let mut u_min = src.x / tex_w;
+                    let mut v_min = src.y / tex_h;
+                    let mut u_max = (src.x + src.width) / tex_w;
+                    let mut v_max = (src.y + src.height) / tex_h;
+
+                    if ch.transform.flip_h { std::mem::swap(&mut u_min, &mut u_max); }
+                    if ch.transform.flip_v { std::mem::swap(&mut v_min, &mut v_max); }
+
+                    unsafe {
+                        rlColor4ub(ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, fg_alpha);
+                        rlTexCoord2f(u_min, v_min); rlVertex2f(dst_x, dst_y);
+                        rlTexCoord2f(u_min, v_max); rlVertex2f(dst_x, dst_y + tile_h);
+                        rlTexCoord2f(u_max, v_max); rlVertex2f(dst_x + tile_w, dst_y + tile_h);
+                        rlTexCoord2f(u_max, v_min); rlVertex2f(dst_x + tile_w, dst_y);
+                    }
+                }
+            }
+        }
+        unsafe {
+            if batch_active { rlEnd(); }
+            EndBlendMode();
         }
     }
 

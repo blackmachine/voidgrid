@@ -90,21 +90,25 @@ fn main() {
     // Используем BufferBuilder
     let main_buf = vg.grids.buffer("main", buf_w, buf_h, gs_crt)
         .z_index(1)
+        // .dynamic(true)
         .build();
         
     let back_buf = vg.grids.buffer("back", buf_w, buf_h, gs_crt)
         .z_index(-1)
+        .dynamic(true) // <--- Включаем immediate mode для этого буфера
         .attach_to(main_buf, 0, 0)
         .build();
     
     // Drop zone буфер (маленький, внизу)
     let drop_zone_buf = vg.grids.buffer("drop_zone", 40, 1, gs_crt)
         .z_index(100)
+        // .dynamic(true)
         .attach_to(main_buf, 2, buf_h - 2)
         .build();
     
     // Буфер с шейдером chromatic aberration
     let shader_demo_buf = vg.grids.buffer("shader_demo", 40, 1, gs_crt)
+        .dynamic(true)
         .attach_to(main_buf, 4, 9)
         .build();
         
@@ -257,6 +261,7 @@ fn main() {
             vg.draw(&mut d, main_buf, 0, 0);
             
             chrome.draw(&mut d);
+            d.draw_fps(10, 10);
         }
     }
 }
