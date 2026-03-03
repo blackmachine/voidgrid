@@ -39,7 +39,7 @@ fn main() {
         .resizable()
         .build();
 
-    // rl.set_target_fps(60);
+    rl.set_target_fps(60);
     
     // Window chrome (кнопки закрытия, maximize и drag handle)
     let mut chrome = WindowChrome::new(800, 600);
@@ -184,14 +184,17 @@ fn main() {
         
         // --- Строка статуса ---
         if let Some((w, _h)) = vg.grids.buffer_size(main_buf) {
-            vg.grids.write_string(
-                main_buf, w.saturating_sub(29), 0,
-                "[ESC] EXIT   [F11] FULLSCREEN",
-                Color::new(0, 255, 127, 255),
-                Color::BLANK,
-            );
-
-
+            // vg.grids.write_string(
+            //     main_buf, w.saturating_sub(29), 0,
+            //     "[ESC] EXIT   [F11] FULLSCREEN",
+            //     Color::new(0, 255, 127, 255),
+            //     Color::BLANK,
+            // );
+            vg.grids.print(main_buf)
+                    .at(w.saturating_sub(29), 0)
+                    .fg(Color::new(0, 255, 127, 255))
+                    .write(("[ESC]", "inverted")).write(" EXIT ")
+                    .write(("[F11]", "inverted")).write(" FULLSCREEN ");
                     // --- Фоновый буфер — случайные глифы ---
         let rx = rand::rng().random_range(0..=w);
         let ry = rand::rng().random_range(0..=_h);
