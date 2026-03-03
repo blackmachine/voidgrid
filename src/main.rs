@@ -1,4 +1,6 @@
-use rand::Rng;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+
 use std::time::Instant;
 
 use raylib::prelude::*;
@@ -188,7 +190,7 @@ fn main() {
                 vg.grids.move_child(main_buf, drop_zone_buf, (2, buf_h - 2));
             }
         }
-
+        let current_time = start_time.elapsed().as_secs_f32();
         // --- Строка статуса ---
         if let Some((w, _h)) = vg.grids.buffer_size(main_buf) {
             vg.grids
@@ -199,25 +201,49 @@ fn main() {
                 .write(" EXIT ")
                 .write(("[F11]", "inverted"))
                 .write(" FULLSCREEN ");
-            // --- Фоновый буфер — случайные глифы ---
-            let rx = rand::rng().random_range(0..=w);
-            let ry = rand::rng().random_range(0..=_h);
+
             let ch = rand::rng().random_range(33..=90);
             let alpha = rand::rng().random_range(0..=32);
 
-            // Character::new теперь принимает (code, variant_id, fg, bg)
-            vg.grids.set_char(
-                back_buf,
-                rx,
-                ry,
-                Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK),
-            );
-        }
+            let cx = (w as f32) * 0.5;
+            let cy = (_h as f32) / 2.0;
 
+            let seed: u64 = 42;
+
+            let mut rng = StdRng::seed_from_u64(seed);
+
+            for x in 0..w {
+                for y in 0.._h {
+                    let ch = rng.random_range(33..=90);
+                    // let alpha = rand::rng().random_range(0..=32);
+
+                    let luma = (((cx - x as f32).powi(2) + (cy - y as f32).powi(2)).sqrt() * 0.25
+                        - current_time * 3.0)
+                        .sin()
+                        * 16.0
+                        + 16.0;
+                    let alpha = luma;
+
+                    vg.grids.set_char(
+                        back_buf,
+                        x,
+                        y,
+                        Character::new(ch, 0, Color::new(0, 255, 0, alpha as u8), Color::BLANK),
+                    );
+                }
+            }
+
+            // Character::new теперь принимает (code, variant_id, fg, bg)
+            // vg.grids.set_char(
+            //     back_buf,
+            //     rx,
+            //     ry,
+            //     Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK),
+            // );
+        }
 
         // --- Буфер с шейдером ---
 
-        let current_time = start_time.elapsed().as_secs_f32();
         let status_text = format!("VOIDGRID _ {:.2}", current_time);
 
         if ((current_time * 5.0).floor() % 2.0) == 0.0 {
