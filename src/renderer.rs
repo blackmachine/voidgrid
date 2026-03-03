@@ -4,9 +4,10 @@ use std::time::Instant;
 use raylib::prelude::*;
 use raylib::ffi::{
     BeginBlendMode, EndBlendMode,
-    rlBegin, rlEnd, rlColor4ub, rlTexCoord2f, rlVertex2f, rlSetTexture,
-    rlGetTextureIdDefault, rlPushMatrix, rlPopMatrix, rlTranslatef,
-    RL_QUADS,
+    rlGetTextureIdDefault,
+    Mesh, Material,
+    UploadMesh, UnloadMesh, DrawMesh, UpdateMeshBuffer,
+    LoadMaterialDefault,
 };
 
 use crate::grids::Grids;
@@ -19,9 +20,39 @@ const MAX_BUFFER_DEPTH: u8 = 8;
 struct Batch {
     texture_id: u32,
     blend: Blend,
-    vertices: Vec<f32>,   // x, y (local)
+    mesh: Mesh,
+    
+    // CPU buffers for rebuilding (capacity reuse)
+    vertices: Vec<f32>,   // x, y, z
     texcoords: Vec<f32>,  // u, v
-    colors: Vec<Color>,   // Base color (without opacity applied)
+    colors: Vec<u8>,      // r, g, b, a
+    
+    // Track GPU buffer capacity to decide between Update and Re-upload
+    gpu_capacity: usize, // in vertices
+}
+
+impl Batch {
+    fn new() -> Self {
+        Self {
+            texture_id: 0,
+            blend: Blend::Alpha,
+            mesh: unsafe { std::mem::zeroed() },
+            vertices: Vec::new(),
+            texcoords: Vec::new(),
+            colors: Vec::new(),
+            gpu_capacity: 0,
+        }
+    }
+}
+
+impl Drop for Batch {
+    fn drop(&mut self) {
+        // Ensure we don't double-free CPU memory, as we own the Vecs
+        self.mesh.vertices = std::ptr::null_mut();
+        self.mesh.texcoords = std::ptr::null_mut();
+        self.mesh.colors = std::ptr::null_mut();
+        unsafe { UnloadMesh(self.mesh); }
+    }
 }
 
 /// Данные буферного шейдера (RenderTexture + настройки)
@@ -51,6 +82,9 @@ pub struct Renderer {
     
     // Geometry Cache
     buffer_batches: HashMap<BufferKey, Vec<Batch>>,
+    
+    // Shared resources
+    default_material: Option<Material>,
 
     // Time tracking
     start_time: Instant,
@@ -71,6 +105,7 @@ impl Renderer {
             post_process_texture: None,
             buffer_shaders: HashMap::new(),
             buffer_batches: HashMap::new(),
+            default_material: None,
             start_time: Instant::now(),
             current_time: 0.0,
         }
@@ -367,6 +402,13 @@ impl Renderer {
         opacity: f32,
         force_rebuild: bool,
     ) {
+        // Ensure default material is loaded (lazy init)
+        if self.default_material.is_none() {
+            unsafe {
+                self.default_material = Some(LoadMaterialDefault());
+            }
+        }
+
         // 1. Check if we need to rebuild the cache
         let (is_dirty, glyphset_key, buf_w, buf_h) = if let Some(buf) = grids.buffers.get(buffer_key) {
             if !buf.visible { return; }
@@ -388,32 +430,29 @@ impl Renderer {
             // Actually caller passes: parent_opacity * buffer.opacity.
             // We apply this to the cached colors.
 
-            unsafe {
-                rlPushMatrix();
-                rlTranslatef(screen_x as f32, screen_y as f32, 0.0);
-
-                for batch in batches {
-                    // Setup state
-                    rlSetTexture(batch.texture_id);
-                    BeginBlendMode(batch.blend.to_ffi());
-                    rlBegin(RL_QUADS as i32);
-
-                    let count = batch.vertices.len() / 2;
-                    for i in 0..count {
-                        let col = &batch.colors[i];
-                        // Apply dynamic opacity to cached color
-                        let alpha = (col.a as f32 * effective_opacity) as u8;
-                        
-                        rlColor4ub(col.r, col.g, col.b, alpha);
-                        rlTexCoord2f(batch.texcoords[i*2], batch.texcoords[i*2+1]);
-                        rlVertex2f(batch.vertices[i*2], batch.vertices[i*2+1]);
-                    }
-
-                    rlEnd();
-                    EndBlendMode();
+            if let Some(material) = &mut self.default_material {
+                // Set material color for opacity
+                let opacity_col = Color::WHITE.alpha(effective_opacity);
+                
+                unsafe {
+                    (*material.maps).color = opacity_col.into();
                 }
 
-                rlPopMatrix();
+                // Create transform matrix
+                let transform = Matrix::translate(screen_x as f32, screen_y as f32, 0.0).into();
+
+                for batch in batches {
+                    if batch.mesh.vertexCount > 0 {
+                        // Set texture
+                        unsafe { (*material.maps).texture.id = batch.texture_id; }
+                        
+                        unsafe {
+                            BeginBlendMode(batch.blend.to_ffi());
+                            DrawMesh(batch.mesh, *material, transform);
+                            EndBlendMode();
+                        }
+                    }
+                }
             }
         }
     }
@@ -439,13 +478,22 @@ impl Renderer {
         let tile_w = glyphset.tile_w as f32;
         let tile_h = glyphset.tile_h as f32;
 
-        let mut batches: Vec<Batch> = Vec::new();
+        // Get or create batch list for this buffer
+        let batches = self.buffer_batches.entry(buffer_key).or_default();
+        let mut batch_idx = 0;
         
         // --- PASS 1: BACKGROUNDS ---
-        let mut bg_verts = Vec::new();
-        let mut bg_uvs = Vec::new();
-        let mut bg_cols = Vec::new();
-
+        // Ensure we have a batch for backgrounds
+        if batch_idx >= batches.len() { batches.push(Batch::new()); }
+        let bg_batch = &mut batches[batch_idx];
+        
+        // Reset batch for reuse
+        bg_batch.texture_id = unsafe { rlGetTextureIdDefault() };
+        bg_batch.blend = Blend::Alpha;
+        bg_batch.vertices.clear();
+        bg_batch.texcoords.clear();
+        bg_batch.colors.clear();
+        
         for y in 0..h {
             for x in 0..w {
                 if let Some(ch) = buffer.get_char_ref(x, y) {
@@ -453,51 +501,37 @@ impl Renderer {
                         let dst_x = x as f32 * tile_w;
                         let dst_y = y as f32 * tile_h;
                         
-                        // 4 vertices
-                        bg_verts.push(dst_x); bg_verts.push(dst_y);
-                        bg_verts.push(dst_x); bg_verts.push(dst_y + tile_h);
-                        bg_verts.push(dst_x + tile_w); bg_verts.push(dst_y + tile_h);
-                        bg_verts.push(dst_x + tile_w); bg_verts.push(dst_y);
+                        // Triangle 1 (TL, BL, BR)
+                        bg_batch.vertices.extend_from_slice(&[dst_x, dst_y, 0.0]);
+                        bg_batch.vertices.extend_from_slice(&[dst_x, dst_y + tile_h, 0.0]);
+                        bg_batch.vertices.extend_from_slice(&[dst_x + tile_w, dst_y + tile_h, 0.0]);
                         
-                        // 4 UVs (center of white pixel)
-                        for _ in 0..4 { bg_uvs.push(0.0); bg_uvs.push(0.0); }
+                        // Triangle 2 (BR, TR, TL)
+                        bg_batch.vertices.extend_from_slice(&[dst_x + tile_w, dst_y + tile_h, 0.0]);
+                        bg_batch.vertices.extend_from_slice(&[dst_x + tile_w, dst_y, 0.0]);
+                        bg_batch.vertices.extend_from_slice(&[dst_x, dst_y, 0.0]);
                         
-                        // 4 Colors
-                        for _ in 0..4 { bg_cols.push(ch.bcolor); }
+                        // 6 UVs (center of white pixel)
+                        for _ in 0..6 { bg_batch.texcoords.extend_from_slice(&[0.0, 0.0]); }
+                        
+                        // 6 Colors
+                        for _ in 0..6 { bg_batch.colors.extend_from_slice(&[ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, ch.bcolor.a]); }
                     }
                 }
             }
         }
         
-        if !bg_verts.is_empty() {
-            batches.push(Batch {
-                texture_id: unsafe { rlGetTextureIdDefault() },
-                blend: Blend::Alpha, // Assuming alpha for BG
-                vertices: bg_verts,
-                texcoords: bg_uvs,
-                colors: bg_cols,
-            });
+        if !bg_batch.vertices.is_empty() {
+            batch_idx += 1;
         }
 
         // --- PASS 2: FOREGROUNDS ---
-        // Temporary storage for current batch
         let mut current_tex = 0;
         let mut current_blend = Blend::Alpha;
-        let mut fg_verts = Vec::new();
-        let mut fg_uvs = Vec::new();
-        let mut fg_cols = Vec::new();
-
-        let flush_batch = |batches: &mut Vec<Batch>, tex: u32, blend: Blend, v: &mut Vec<f32>, uv: &mut Vec<f32>, c: &mut Vec<Color>| {
-            if !v.is_empty() {
-                batches.push(Batch {
-                    texture_id: tex,
-                    blend,
-                    vertices: std::mem::take(v),
-                    texcoords: std::mem::take(uv),
-                    colors: std::mem::take(c),
-                });
-            }
-        };
+        
+        // Helper to get current foreground batch
+        // We can't use a closure easily due to borrow checker with `batches` and `batch_idx`
+        // So we manage index manually.
 
         for y in 0..h {
             for x in 0..w {
@@ -517,10 +551,27 @@ impl Renderer {
                     
                     // State change check
                     if tex_id != current_tex || ch.fg_blend != current_blend {
-                        flush_batch(&mut batches, current_tex, current_blend, &mut fg_verts, &mut fg_uvs, &mut fg_cols);
+                        // If we were building a batch and it has data, move to next
+                        if batch_idx < batches.len() && !batches[batch_idx].vertices.is_empty() {
+                            batch_idx += 1;
+                        }
+                        
+                        // Ensure batch exists
+                        if batch_idx >= batches.len() { batches.push(Batch::new()); }
+                        
+                        // Initialize new batch state
+                        let batch = &mut batches[batch_idx];
+                        batch.texture_id = tex_id;
+                        batch.blend = ch.fg_blend;
+                        batch.vertices.clear();
+                        batch.texcoords.clear();
+                        batch.colors.clear();
+                        
                         current_tex = tex_id;
                         current_blend = ch.fg_blend;
                     }
+                    
+                    let batch = &mut batches[batch_idx];
                     
                     // Calculate Vertices & UVs
                     let dst_x = x as f32 * tile_w;
@@ -566,24 +617,83 @@ impl Renderer {
                         v_tr = rotate(v_tr);
                     }
                     
-                    fg_cols.push(ch.fcolor); fg_cols.push(ch.fcolor); fg_cols.push(ch.fcolor); fg_cols.push(ch.fcolor);
+                    // 6 Colors
+                    for _ in 0..6 {
+                        batch.colors.extend_from_slice(&[ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, ch.fcolor.a]);
+                    }
                     
-                    fg_uvs.push(u_min); fg_uvs.push(v_min);
-                    fg_uvs.push(u_min); fg_uvs.push(v_max);
-                    fg_uvs.push(u_max); fg_uvs.push(v_max);
-                    fg_uvs.push(u_max); fg_uvs.push(v_min);
+                    // Tri 1 UVs (TL, BL, BR)
+                    batch.texcoords.extend_from_slice(&[u_min, v_min]);
+                    batch.texcoords.extend_from_slice(&[u_min, v_max]);
+                    batch.texcoords.extend_from_slice(&[u_max, v_max]);
+                    // Tri 2 UVs (BR, TR, TL)
+                    batch.texcoords.extend_from_slice(&[u_max, v_max]);
+                    batch.texcoords.extend_from_slice(&[u_max, v_min]);
+                    batch.texcoords.extend_from_slice(&[u_min, v_min]);
                     
-                    fg_verts.push(dst_x + v_tl.0); fg_verts.push(dst_y + v_tl.1);
-                    fg_verts.push(dst_x + v_bl.0); fg_verts.push(dst_y + v_bl.1);
-                    fg_verts.push(dst_x + v_br.0); fg_verts.push(dst_y + v_br.1);
-                    fg_verts.push(dst_x + v_tr.0); fg_verts.push(dst_y + v_tr.1);
+                    // Tri 1 Vertices (TL, BL, BR)
+                    batch.vertices.extend_from_slice(&[dst_x + v_tl.0, dst_y + v_tl.1, 0.0]);
+                    batch.vertices.extend_from_slice(&[dst_x + v_bl.0, dst_y + v_bl.1, 0.0]);
+                    batch.vertices.extend_from_slice(&[dst_x + v_br.0, dst_y + v_br.1, 0.0]);
+                    
+                    // Tri 2 Vertices (BR, TR, TL)
+                    batch.vertices.extend_from_slice(&[dst_x + v_br.0, dst_y + v_br.1, 0.0]);
+                    batch.vertices.extend_from_slice(&[dst_x + v_tr.0, dst_y + v_tr.1, 0.0]);
+                    batch.vertices.extend_from_slice(&[dst_x + v_tl.0, dst_y + v_tl.1, 0.0]);
                 }
             }
         }
         
-        flush_batch(&mut batches, current_tex, current_blend, &mut fg_verts, &mut fg_uvs, &mut fg_cols);
+        // Finalize last batch index
+        if batch_idx < batches.len() && !batches[batch_idx].vertices.is_empty() {
+            batch_idx += 1;
+        }
         
-        self.buffer_batches.insert(buffer_key, batches);
+        // Remove unused batches (if buffer content shrank)
+        batches.truncate(batch_idx);
+        
+        // Upload to GPU
+        for batch in batches.iter_mut() {
+            let vertex_count = batch.vertices.len() / 3;
+            batch.mesh.vertexCount = vertex_count as i32;
+            batch.mesh.triangleCount = (vertex_count / 3) as i32; // 3 vertices per tri
+            
+            if vertex_count > batch.gpu_capacity {
+                // Reallocate
+                unsafe {
+                    // Ensure pointers are null before Unload so it doesn't free Vec memory
+                    batch.mesh.vertices = std::ptr::null_mut();
+                    batch.mesh.texcoords = std::ptr::null_mut();
+                    batch.mesh.colors = std::ptr::null_mut();
+
+                    UnloadMesh(batch.mesh); // Free old VBOs
+                    
+                    // Reset IDs because they are now invalid/freed
+                    batch.mesh.vaoId = 0;
+                    batch.mesh.vboId = std::ptr::null_mut();
+
+                    // Assign pointers for UploadMesh
+                    batch.mesh.vertices = batch.vertices.as_mut_ptr();
+                    batch.mesh.texcoords = batch.texcoords.as_mut_ptr();
+                    batch.mesh.colors = batch.colors.as_mut_ptr();
+
+                    UploadMesh(&mut batch.mesh, true); // Allocate new VBOs (dynamic)
+                }
+                batch.gpu_capacity = vertex_count;
+            } else {
+                // Update existing
+                unsafe {
+                    UpdateMeshBuffer(batch.mesh, 0, batch.vertices.as_ptr() as *const _, (batch.vertices.len() * 4) as i32, 0);
+                    UpdateMeshBuffer(batch.mesh, 1, batch.texcoords.as_ptr() as *const _, (batch.texcoords.len() * 4) as i32, 0);
+                    UpdateMeshBuffer(batch.mesh, 3, batch.colors.as_ptr() as *const _, (batch.colors.len() * 1) as i32, 0);
+                }
+            }
+            
+            // Clear pointers so UnloadMesh doesn't try to free our Vec memory later
+            batch.mesh.vertices = std::ptr::null_mut();
+            batch.mesh.texcoords = std::ptr::null_mut();
+            batch.mesh.colors = std::ptr::null_mut();
+        }
     }
 
     fn draw_internal_skip_shaders<D: RaylibDraw>(
