@@ -48,8 +48,10 @@ impl Buffer {
 
     pub fn set(&mut self, x: u32, y: u32, ch: Character) {
         if let Some(i) = self.index(x, y) {
-            self.dirty = true;
-            self.data[i] = ch;
+            if self.data[i] != ch {
+                self.dirty = true;
+                self.data[i] = ch;
+            }
         }
     }
 

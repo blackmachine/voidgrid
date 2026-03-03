@@ -160,7 +160,7 @@ impl WriteDirection {
 // Маска и Цвет
 // ============================================================================
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Mask {
     pub atlas: AtlasKey,
     pub glyph: u32,
@@ -191,7 +191,7 @@ impl From<Color> for ColorRef {
 // Character
 // ============================================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Character {
     pub code: u32,
     pub variant_id: u8,

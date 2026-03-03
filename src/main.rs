@@ -102,7 +102,7 @@ fn main() {
     // Drop zone буфер (маленький, внизу)
     let drop_zone_buf = vg.grids.buffer("drop_zone", 40, 1, gs_crt)
         .z_index(100)
-        // .dynamic(true)
+        .dynamic(true)
         .attach_to(main_buf, 2, buf_h - 2)
         .build();
     
@@ -125,15 +125,27 @@ fn main() {
     start_time = Instant::now();
     let current_time = start_time.elapsed().as_secs_f32();
 
+
+
+
     // ========================================================================
     // ГЛАВНЫЙ ЦИКЛ
     // ========================================================================
+
+    let mut is_resized = false;
+
     while !rl.window_should_close() {
         
+        
+
         puffin::GlobalProfiler::lock().new_frame();
         puffin::profile_scope!("Main Loop");
         // --- Очистка буферов ---
-        vg.grids.clear_buffer(main_buf);
+        if is_resized {
+            vg.grids.clear_buffer(main_buf);
+            is_resized = false;
+        }
+        // 
         vg.grids.clear_buffer(drop_zone_buf);
         vg.grids.clear_buffer(shader_demo_buf);
         
@@ -149,6 +161,8 @@ fn main() {
         
         // --- Проверка resize и обновление буфера ---
         if let Some((new_w, new_h)) = chrome.check_resize(&rl) {
+            is_resized = true;
+            
             let new_buf_w: u32 = (new_w as u32) / tile_w;
             let new_buf_h: u32 = (new_h as u32) / tile_h;
             
@@ -191,17 +205,30 @@ fn main() {
         
         // --- Основной текст ---
         // Используем Printer
-        vg.grids.print(main_buf)
-            .at(4, 18)
-            .fg(Color::new(0, 255, 127, 255))
-            .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
-            .write(("FLICKERING\n", "inverted"))
-            .write("NAKEDLY\nON ONE SIDE\nAND FOUR SPEAKERS\nHUMMING ON\nTHE OTHER...");
+
         
         // --- Буфер с шейдером ---
 
         let current_time = start_time.elapsed().as_secs_f32();
         let status_text = format!("VOIDGRID // {}", current_time);
+
+        if (current_time.floor() % 2.0)==0.0 {
+            vg.grids.print(main_buf)
+                    .at(4, 18)
+                    .fg(Color::new(0, 255, 127, 255))
+                    .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
+                    .write(("FLICKERING\n", "inverted"))
+                    .write("NAKEDLY\nON ONE SIDE\nAND FOUR SPEAKERS\nHUMMING ON\nTHE OTHER...");
+
+        } else {
+            vg.grids.print(main_buf)
+                    .at(4, 18)
+                    .fg(Color::new(0, 255, 127, 255))
+                    .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
+                    .write(("FLICKERING\n"))
+                    .write("NAKEDLY\nON ONE SIDE\nAND FOUR SPEAKERS\nHUMMING ON\nTHE OTHER...");
+            
+        }
 
         vg.grids.print(shader_demo_buf)
             .color(Color::WHITE, Color::new(16, 16, 16, 255))
