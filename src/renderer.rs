@@ -3,13 +3,14 @@ use std::time::Instant;
 
 use raylib::prelude::*;
 use raylib::ffi::{
-    BeginBlendMode, EndBlendMode, DrawTexturePro,
-    Vector2 as FfiVector2, Rectangle as FfiRectangle,
+    BeginBlendMode, EndBlendMode,
+    rlBegin, rlEnd, rlColor4ub, rlTexCoord2f, rlVertex2f, rlSetTexture,
+    rlGetTextureIdDefault, RL_QUADS,
 };
 
 use crate::grids::Grids;
 use crate::types::{BufferKey, ShaderKey, Blend};
-
+use crate::types::Rotation;
 /// Максимальная глубина вложенности буферов
 const MAX_BUFFER_DEPTH: u8 = 8;
 
@@ -350,6 +351,7 @@ impl Renderer {
         screen_x: i32,
         screen_y: i32,
         opacity: f32,
+        // Note: We use raw rlgl calls here for batching performance
     ) {
         let buffer = match grids.buffers.get(buffer_key) {
             Some(b) => b,
@@ -366,69 +368,163 @@ impl Renderer {
         let effective_opacity = opacity * buffer.opacity;
         let tile_w = glyphset.tile_w as f32;
         let tile_h = glyphset.tile_h as f32;
+
+        // --- PASS 1: BACKGROUNDS ---
+        // Backgrounds are just colored quads. We can draw them all in one go
+        // using the default white texture.
+        unsafe {
+            rlBegin(RL_QUADS as i32);
+            rlSetTexture(rlGetTextureIdDefault());
+            
+            // We assume Alpha blending for backgrounds for now, or we could switch.
+            // For optimization, we batch all backgrounds.
+            // If specific blending is needed per cell, we might need to break batch,
+            // but usually backgrounds are simple.
+            
+            for y in 0..buffer.h {
+                for x in 0..buffer.w {
+                    if let Some(ch) = buffer.get_char_ref(x, y) {
+                        let bg_alpha = (ch.bcolor.a as f32 * effective_opacity) as u8;
+                        if bg_alpha > 0 {
+                            let dst_x = screen_x as f32 + (x as f32 * tile_w);
+                            let dst_y = screen_y as f32 + (y as f32 * tile_h);
+                            
+                            rlColor4ub(ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, bg_alpha);
+                            rlTexCoord2f(0.0, 0.0); // Center of white pixel
+                            
+                            // Quad vertices (Counter-clockwise or Raylib order: TL, BL, BR, TR)
+                            rlVertex2f(dst_x, dst_y);
+                            rlVertex2f(dst_x, dst_y + tile_h);
+                            rlVertex2f(dst_x + tile_w, dst_y + tile_h);
+                            rlVertex2f(dst_x + tile_w, dst_y);
+                        }
+                    }
+                }
+            }
+            rlEnd();
+        }
+
+        // --- PASS 2: FOREGROUNDS (GLYPHS) ---
+        // We need to group by (Texture, BlendMode) to minimize draw calls.
         
-        let mut current_blend: Option<Blend> = None;
-        
+        let mut current_texture_id: u32 = 0;
+        let mut current_blend = Blend::Alpha;
+        let mut batch_active = false;
+
+        // Start with default blend
+        unsafe { BeginBlendMode(current_blend.to_ffi()); }
+
         for y in 0..buffer.h {
             for x in 0..buffer.w {
                 if let Some(ch) = buffer.get_char_ref(x, y) {
-                    let dst_x = screen_x as f32 + (x as f32 * tile_w);
-                    let dst_y = screen_y as f32 + (y as f32 * tile_h);
+                    let fg_alpha = (ch.fcolor.a as f32 * effective_opacity) as u8;
                     
-                    let fg_with_opacity = Color::new(ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, (ch.fcolor.a as f32 * effective_opacity) as u8);
-                    let bg_with_opacity = Color::new(ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, (ch.bcolor.a as f32 * effective_opacity) as u8);
-                    
-                    // Resolve global_id from LUT
+                    if fg_alpha == 0 { continue; }
+
+                    // Resolve global_id and Atlas
                     let global_id = glyphset.luts.get(ch.variant_id as usize)
                         .and_then(|lut: &Vec<u32>| lut.get(ch.code as usize))
                         .copied()
                         .unwrap_or(glyphset.default_global_id);
-
-                    // Get physical glyph from registry
+                    
                     let (atlas_key, physical_glyph) = grids.global_registry.entries[global_id as usize];
                     let atlas = &grids.atlases[atlas_key];
                     let (src, _, _) = atlas.get_glyph_source(physical_glyph);
-
-                    let transformed_src = ch.transform.apply_to_src(src);
-                    let rotation = ch.transform.rotation.degrees();
+                    let tex_id = atlas.texture.id;
                     
-                    let origin = if rotation != 0.0 { Vector2::new(tile_w / 2.0, tile_h / 2.0) } else { Vector2::zero() };
-                    let (final_dst_x, final_dst_y) = if rotation != 0.0 { (dst_x + tile_w / 2.0, dst_y + tile_h / 2.0) } else { (dst_x, dst_y) };
-                    
-                    // Фон
-                    if bg_with_opacity.a > 0 {
-                        if current_blend != Some(ch.bg_blend) {
-                            if current_blend.is_some() { unsafe { EndBlendMode(); } }
-                            unsafe { BeginBlendMode(ch.bg_blend.to_ffi()); }
-                            current_blend = Some(ch.bg_blend);
-                        }
-                        d.draw_rectangle(dst_x as i32, dst_y as i32, tile_w as i32, tile_h as i32, bg_with_opacity);
-                    }
-                    
-                    // Глиф
-                    if fg_with_opacity.a > 0 {
-                        if current_blend != Some(ch.fg_blend) {
-                            if current_blend.is_some() { unsafe { EndBlendMode(); } }
-                            unsafe { BeginBlendMode(ch.fg_blend.to_ffi()); }
-                            current_blend = Some(ch.fg_blend);
+                    // Check state changes
+                    if tex_id != current_texture_id || ch.fg_blend != current_blend {
+                        if batch_active {
+                            unsafe { rlEnd(); }
+                            batch_active = false;
                         }
                         
-                        unsafe {
-                            DrawTexturePro(
-                                *atlas.texture.as_ref(),
-                                transformed_src.into(),
-                                FfiRectangle { x: final_dst_x, y: final_dst_y, width: tile_w, height: tile_h },
-                                FfiVector2 { x: origin.x, y: origin.y },
-                                rotation,
-                                std::mem::transmute::<Color, raylib::ffi::Color>(fg_with_opacity),
-                            );
+                        if ch.fg_blend != current_blend {
+                            unsafe {
+                                EndBlendMode();
+                                BeginBlendMode(ch.fg_blend.to_ffi());
+                            }
+                            current_blend = ch.fg_blend;
                         }
+                        
+                        if tex_id != current_texture_id {
+                            unsafe { rlSetTexture(tex_id); }
+                            current_texture_id = tex_id;
+                        }
+                    }
+                    
+                    if !batch_active {
+                        unsafe { rlBegin(RL_QUADS as i32); }
+                        batch_active = true;
+                    }
+                    
+                    // Calculate Vertices & UVs
+                    let dst_x = screen_x as f32 + (x as f32 * tile_w);
+                    let dst_y = screen_y as f32 + (y as f32 * tile_h);
+                    
+                    // UVs
+                    let (tex_w, tex_h) = atlas.texture_size();
+                    let mut u_min = src.x / tex_w;
+                    let mut v_min = src.y / tex_h;
+                    let mut u_max = (src.x + src.width) / tex_w;
+                    let mut v_max = (src.y + src.height) / tex_h;
+                    
+                    if ch.transform.flip_h { std::mem::swap(&mut u_min, &mut u_max); }
+                    if ch.transform.flip_v { std::mem::swap(&mut v_min, &mut v_max); }
+                    
+                    // Vertices (Local to tile)
+                    // TL, BL, BR, TR
+                    let mut v_tl = (0.0, 0.0);
+                    let mut v_bl = (0.0, tile_h);
+                    let mut v_br = (tile_w, tile_h);
+                    let mut v_tr = (tile_w, 0.0);
+                    
+                    // Rotation (around center)
+                    if ch.transform.rotation != Rotation::None {
+                        let cx = tile_w * 0.5;
+                        let cy = tile_h * 0.5;
+                        let rot_rad = ch.transform.rotation.degrees().to_radians();
+                        let cos_r = rot_rad.cos();
+                        let sin_r = rot_rad.sin();
+                        
+                        let rotate = |(vx, vy): (f32, f32)| -> (f32, f32) {
+                            let dx = vx - cx;
+                            let dy = vy - cy;
+                            (
+                                cx + dx * cos_r - dy * sin_r,
+                                cy + dx * sin_r + dy * cos_r
+                            )
+                        };
+                        
+                        v_tl = rotate(v_tl);
+                        v_bl = rotate(v_bl);
+                        v_br = rotate(v_br);
+                        v_tr = rotate(v_tr);
+                    }
+                    
+                    unsafe {
+                        rlColor4ub(ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, fg_alpha);
+                        
+                        rlTexCoord2f(u_min, v_min);
+                        rlVertex2f(dst_x + v_tl.0, dst_y + v_tl.1);
+                        
+                        rlTexCoord2f(u_min, v_max);
+                        rlVertex2f(dst_x + v_bl.0, dst_y + v_bl.1);
+                        
+                        rlTexCoord2f(u_max, v_max);
+                        rlVertex2f(dst_x + v_br.0, dst_y + v_br.1);
+                        
+                        rlTexCoord2f(u_max, v_min);
+                        rlVertex2f(dst_x + v_tr.0, dst_y + v_tr.1);
                     }
                 }
             }
         }
         
-        if current_blend.is_some() { unsafe { EndBlendMode(); } }
+        unsafe {
+            if batch_active { rlEnd(); }
+            EndBlendMode();
+        }
     }
 
     fn draw_internal_skip_shaders<D: RaylibDraw>(
