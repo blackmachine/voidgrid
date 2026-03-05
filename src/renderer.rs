@@ -158,6 +158,13 @@ impl Renderer {
         
         // Создаём RenderTexture
         if let Ok(rt) = rl.load_render_texture(thread, width as u32, height as u32) {
+            // Включаем билинейную фильтрацию для плавных эффектов шейдера
+            unsafe {
+                raylib::ffi::SetTextureFilter(
+                    *rt.texture().as_ref(),
+                    raylib::ffi::TextureFilter::TEXTURE_FILTER_BILINEAR as i32,
+                );
+            }
             self.buffer_shaders.insert(buffer, BufferShaderData {
                 shader,
                 padding,
