@@ -9,7 +9,7 @@ use grids::input::{DropZone, WindowChrome};
 use grids::text_ops::TextOps;
 use grids::types::Character;
 use grids::VoidGrid;
-use grids::hierarchy::{Hierarchy, ZPolicy};
+use grids::hierarchy::{Hierarchy, ZPolicy, Anchor};
 
 fn main() {
     puffin::set_scopes_on(true);
@@ -126,7 +126,8 @@ fn main() {
     // Привязываем drop_zone
     let drop_node = hierarchy.attach(Some(drop_zone_buf))
         .to(root_node)
-        .at(2 * tile_w as i32, ((buf_h as i32) - 2) * tile_h as i32)
+        .anchor(Anchor::BottomLeft)
+        .at(2 * tile_w as i32, -2 * tile_h as i32)
         .with_z(ZPolicy::Absolute(100))
         .key();
 
@@ -208,7 +209,6 @@ fn main() {
 
                 // Перемещаем drop zone вниз
                 // vg.grids.move_child(main_buf, drop_zone_buf, (2, buf_h - 2));
-                hierarchy.nodes[drop_node].local_y = ((buf_h as i32) - 2) * tile_h as i32;
             }
         }
         let current_time = start_time.elapsed().as_secs_f32();
