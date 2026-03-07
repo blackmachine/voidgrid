@@ -529,7 +529,7 @@ impl Grids {
     }
 
     /// Начать создание буфера через Builder
-    pub fn buffer(&mut self, name: impl Into<String>, w: u32, h: u32, glyphset: GlyphsetKey) -> BufferBuilder {
+    pub fn buffer(&mut self, name: impl Into<String>, w: u32, h: u32, glyphset: GlyphsetKey) -> BufferBuilder<'_> {
         BufferBuilder::new(self, name, w, h, glyphset)
     }
     

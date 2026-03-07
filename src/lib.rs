@@ -10,11 +10,13 @@ pub mod text_ops;
 pub mod input;
 pub mod global_registry;
 pub mod glyphset;
+pub mod hierarchy;
+pub mod ui;
 
 use raylib::prelude::*;
 use grids::Grids;
 use renderer::Renderer;
-use types::*;
+use hierarchy::RenderItem;
 
 /// Фасад для движка VoidGrid.
 /// Объединяет управление данными (Grids) и отрисовку (Renderer).
@@ -42,13 +44,13 @@ impl VoidGrid {
     }
     
     /// Отрисовка всего дерева буферов
-    pub fn draw(&mut self, d: &mut RaylibDrawHandle, root: BufferKey, screen_x: i32, screen_y: i32) {
-        self.renderer.draw(d, &mut self.grids, root, screen_x, screen_y);
+    pub fn draw(&mut self, d: &mut RaylibDrawHandle, render_list: &[RenderItem]) {
+        self.renderer.draw(d, &mut self.grids, render_list);
     }
     
     /// Предварительный рендер (для шейдеров)
-    pub fn render_offscreen(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, root: BufferKey, screen_x: i32, screen_y: i32) {
-        self.renderer.render_offscreen(rl, thread, &mut self.grids, root, screen_x, screen_y);
+    pub fn render_offscreen(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, render_list: &[RenderItem]) {
+        self.renderer.render_offscreen(rl, thread, &mut self.grids, render_list);
     }
 }
 

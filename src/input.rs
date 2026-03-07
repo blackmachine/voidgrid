@@ -1,4 +1,10 @@
 //! Input - модуль обработки пользовательского ввода и window chrome
+//! 
+//! TODO:
+//! - [ ] Separate Polling (Raw Input) from Events
+//! - [ ] Create unified InputState structure
+//! - [ ] Implement Event Queue (Click, Char, Resize)
+//! - [ ] Decouple from Raylib (make backend-agnostic)
 
 use raylib::prelude::*;
 

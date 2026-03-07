@@ -14,8 +14,7 @@ use raylib::ffi::{
 use crate::grids::Grids;
 use crate::types::{BufferKey, ShaderKey, Blend, GlyphsetKey};
 use crate::types::Rotation;
-/// Максимальная глубина вложенности буферов
-const MAX_BUFFER_DEPTH: u8 = 8;
+use crate::hierarchy::RenderItem;
 
 /// Кэшированный батч отрисовки
 struct Batch {
@@ -205,30 +204,27 @@ impl Renderer {
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
         grids: &mut Grids,
-        root: BufferKey,
-        screen_x: i32,
-        screen_y: i32,
+        render_list: &[RenderItem],
     ) {
         // Обновляем время
         self.current_time = self.start_time.elapsed().as_secs_f32();
         
-        // Собираем буферы с шейдерами и их позиции
-        let shader_buffers = self.collect_shader_buffers(grids, root, screen_x, screen_y, MAX_BUFFER_DEPTH);
-        
-        // Рендерим каждый буфер с шейдером в его текстуру
-        for (buffer_key, _sx, _sy) in &shader_buffers {
-            let padding = self.buffer_shaders.get(buffer_key).map(|d| d.padding).unwrap_or(0) as i32;
+        // Проходим по плоскому списку и рендерим буферы с шейдерами в их текстуры
+        for item in render_list {
+            let buffer_key = item.buffer;
             
-            // Получаем указатель на текстуру
-            let rt_ptr = self.buffer_shaders.get_mut(buffer_key)
-                .map(|data| &mut data.render_texture as *mut RenderTexture2D);
+            // Если у буфера есть шейдер, рендерим его содержимое в текстуру
+            if let Some(shader_data) = self.buffer_shaders.get_mut(&buffer_key) {
+                let padding = shader_data.padding as i32;
+                // Получаем указатель на текстуру (через raw pointer чтобы обойти borrow checker)
+                let rt_ptr = &mut shader_data.render_texture as *mut RenderTexture2D;
             
-            if let Some(rt_ptr) = rt_ptr {
                 let rt = unsafe { &mut *rt_ptr };
                 let mut texture_d = rl.begin_texture_mode(thread, rt);
                 texture_d.clear_background(Color::BLANK);
                 // Рисуем буфер в текстуру
-                self.draw_single_buffer(&mut texture_d, grids, *buffer_key, padding, padding, 1.0, true);
+                // Важно: рисуем в (padding, padding), так как это локальная отрисовка в текстуру
+                self.draw_single_buffer(&mut texture_d, grids, buffer_key, padding, padding, 1.0, true);
             }
         }
     }
@@ -238,19 +234,16 @@ impl Renderer {
         &mut self,
         d: &mut RaylibDrawHandle,
         grids: &mut Grids,
-        root: BufferKey,
-        screen_x: i32,
-        screen_y: i32,
+        render_list: &[RenderItem],
     ) {
-        // Собираем буферы с шейдерами
-        let shader_buffers = self.collect_shader_buffers(grids, root, screen_x, screen_y, MAX_BUFFER_DEPTH);
-        
-        // Рисуем основное дерево (буферы с шейдерами пропускаются)
-        self.draw_internal_skip_shaders(d, grids, root, screen_x, screen_y, 1.0, MAX_BUFFER_DEPTH);
-        
-        // Рисуем буферы с шейдерами
-        for (buffer_key, sx, sy) in shader_buffers {
-            self.draw_buffer_with_shader(d, grids, buffer_key, sx, sy);
+        for item in render_list {
+            if self.buffer_shaders.contains_key(&item.buffer) {
+                // Если есть шейдер, рисуем результат из текстуры (Pass 1)
+                self.draw_buffer_with_shader(d, grids, item.buffer, item.screen_x, item.screen_y);
+            } else {
+                // Иначе рисуем буфер напрямую
+                self.draw_single_buffer(d, grids, item.buffer, item.screen_x, item.screen_y, item.opacity, false);
+            }
         }
     }
 
@@ -309,61 +302,6 @@ impl Renderer {
     }
 
     // --- Внутренние методы ---
-
-    fn collect_shader_buffers(
-        &self,
-        grids: &Grids,
-        root: BufferKey,
-        screen_x: i32,
-        screen_y: i32,
-        depth: u8,
-    ) -> Vec<(BufferKey, i32, i32)> {
-        let mut result = Vec::new();
-        self.collect_shader_buffers_internal(grids, root, screen_x, screen_y, depth, &mut result);
-        result
-    }
-    
-    fn collect_shader_buffers_internal(
-        &self,
-        grids: &Grids,
-        buffer_key: BufferKey,
-        screen_x: i32,
-        screen_y: i32,
-        depth: u8,
-        result: &mut Vec<(BufferKey, i32, i32)>,
-    ) {
-        if depth == 0 { return; }
-        
-        let buffer = match grids.buffers.get(buffer_key) {
-            Some(b) => b,
-            None => return,
-        };
-        
-        if !buffer.visible { return; }
-        
-        let gs = match grids.glyphsets.get(buffer.glyphset()) {
-            Some(g) => g,
-            None => return,
-        };
-        
-        let tile_w = gs.tile_w as i32;
-        let tile_h = gs.tile_h as i32;
-        
-        if self.buffer_shaders.contains_key(&buffer_key) {
-            result.push((buffer_key, screen_x, screen_y));
-        }
-        
-        let mut children: Vec<_> = grids.attachments.iter()
-            .filter(|a| a.parent == buffer_key)
-            .collect();
-        children.sort_by_key(|a| a.z_index);
-        
-        for att in children {
-            let child_x = screen_x + (att.x as i32 * tile_w);
-            let child_y = screen_y + (att.y as i32 * tile_h);
-            self.collect_shader_buffers_internal(grids, att.child, child_x, child_y, depth - 1, result);
-        }
-    }
 
     fn draw_buffer_with_shader(&mut self, d: &mut RaylibDrawHandle, grids: &mut Grids, buffer: BufferKey, screen_x: i32, screen_y: i32) {
         self.current_time = self.start_time.elapsed().as_secs_f32();
@@ -823,68 +761,6 @@ impl Renderer {
             batch.mesh.vertices = std::ptr::null_mut();
             batch.mesh.texcoords = std::ptr::null_mut();
             batch.mesh.colors = std::ptr::null_mut();
-        }
-    }
-
-    fn draw_internal_skip_shaders<D: RaylibDraw>(
-        &mut self,
-        d: &mut D,
-        grids: &mut Grids,
-        buffer_key: BufferKey,
-        screen_x: i32,
-        screen_y: i32,
-        parent_opacity: f32,
-        depth: u8,
-    ) {
-        if depth == 0 { return; }
-        
-        // let buffer = match grids.buffers.get(buffer_key) {
-        //     Some(b) => b,
-        //     None => return,
-        let (visible, opacity, glyphset_key) = if let Some(buf) = grids.buffers.get(buffer_key) {
-            (buf.visible, buf.opacity, buf.glyphset())
-        } else {
-            return;
-
-        };
-         
-        
-        // if !buffer.visible { return; }
-        
-        // let gs = match grids.glyphsets.get(buffer.glyphset()) {
-        //     Some(g) => g,
-        //     None => return,
-        // };
-        
-        if !visible {return;}
-
-        let (tile_w, tile_h) = if let Some(gs) = grids.glyphsets.get(glyphset_key) {
-            (gs.tile_w as f32, gs.tile_h as f32)
-        } else {
-            return;
-        };
-        
-
-        // let effective_opacity = parent_opacity * buffer.opacity;
-        // let tile_w = gs.tile_w as f32;
-        // let tile_h = gs.tile_h as f32;
-        let effective_opacity = parent_opacity * opacity;
-
-        
-        if !self.buffer_shaders.contains_key(&buffer_key) {
-            self.draw_single_buffer(d, grids, buffer_key, screen_x, screen_y, effective_opacity, false);
-        }
-        
-        let mut children: Vec<_> = grids.attachments.iter()
-            .filter(|a| a.parent == buffer_key)
-            .cloned()
-            .collect();
-        children.sort_by_key(|a| a.z_index);
-        
-        for att in children {
-            let child_x = screen_x + (att.x as f32 * tile_w) as i32;
-            let child_y = screen_y + (att.y as f32 * tile_h) as i32;
-            self.draw_internal_skip_shaders(d, grids, att.child, child_x, child_y, effective_opacity, depth - 1);
         }
     }
 }

@@ -7,8 +7,9 @@ use raylib::prelude::*;
 
 use grids::input::{DropZone, WindowChrome};
 use grids::text_ops::TextOps;
-use grids::types::{Character, GlyphsetKey};
+use grids::types::Character;
 use grids::VoidGrid;
+use grids::hierarchy::{Hierarchy, ZPolicy};
 
 fn main() {
     puffin::set_scopes_on(true);
@@ -88,6 +89,9 @@ fn main() {
     // Создаём буферы
     // ========================================================================
 
+    // Инициализируем иерархию
+    let mut hierarchy = Hierarchy::new();
+
     // Используем BufferBuilder
     let main_buf = vg
         .grids
@@ -95,14 +99,23 @@ fn main() {
         .z_index(1)
         // .dynamic(true)
         .build();
+    
+    // Создаем корневой узел
+    let root_node = hierarchy.create_node(Some(main_buf));
+    hierarchy.root = Some(root_node);
 
     let back_buf = vg
         .grids
         .buffer("back", buf_w, buf_h, gs_crt)
         .z_index(-1)
         .dynamic(true) // <--- Включаем immediate mode для этого буфера
-        .attach_to(main_buf, 0, 0)
         .build();
+    
+    // Привязываем back_buf к main_buf
+    let back_node = hierarchy.create_node(Some(back_buf));
+    hierarchy.nodes[back_node].parent = Some(root_node);
+    hierarchy.nodes[back_node].z_policy = ZPolicy::Relative(-1); // Рисуем под родителем
+    hierarchy.nodes[root_node].children.push(back_node);
 
     // Drop zone буфер (маленький, внизу)
     let drop_zone_buf = vg
@@ -110,16 +123,28 @@ fn main() {
         .buffer("drop_zone", 40, 1, gs_crt)
         .z_index(100)
         .dynamic(true)
-        .attach_to(main_buf, 2, buf_h - 2)
         .build();
+    
+    // Привязываем drop_zone
+    let drop_node = hierarchy.create_node(Some(drop_zone_buf));
+    hierarchy.nodes[drop_node].parent = Some(root_node);
+    hierarchy.nodes[drop_node].local_x = 2 * tile_w as i32;
+    hierarchy.nodes[drop_node].local_y = ((buf_h as i32) - 2) * tile_h as i32;
+    hierarchy.nodes[drop_node].z_policy = ZPolicy::Absolute(100);
+    hierarchy.nodes[root_node].children.push(drop_node);
 
     // Буфер с шейдером chromatic aberration
     let shader_demo_buf = vg
         .grids
         .buffer("shader_demo", 40, 1, gs_crt)
         .dynamic(true)
-        .attach_to(main_buf, 4, 9)
         .build();
+    
+    let shader_node = hierarchy.create_node(Some(shader_demo_buf));
+    hierarchy.nodes[shader_node].parent = Some(root_node);
+    hierarchy.nodes[shader_node].local_x = 4 * tile_w as i32;
+    hierarchy.nodes[shader_node].local_y = 9 * tile_h as i32;
+    hierarchy.nodes[root_node].children.push(shader_node);
 
     vg.renderer.attach_shader(
         &mut rl,
@@ -187,7 +212,8 @@ fn main() {
                 // vg.renderer.update_buffer_shader_texture(&mut rl, &thread, &vg.grids, shader_demo_buf);
 
                 // Перемещаем drop zone вниз
-                vg.grids.move_child(main_buf, drop_zone_buf, (2, buf_h - 2));
+                // vg.grids.move_child(main_buf, drop_zone_buf, (2, buf_h - 2));
+                hierarchy.nodes[drop_node].local_y = ((buf_h as i32) - 2) * tile_h as i32;
             }
         }
         let current_time = start_time.elapsed().as_secs_f32();
@@ -252,7 +278,7 @@ fn main() {
                 .at(4, 18)
                 .fg(Color::new(0, 255, 127, 255))
                 .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
-                .write(("FLICKERING\n", "inverted"))
+                .write(("FLICKERING\n", "inverted")) // Исправлено: убраны лишние скобки, но здесь кортеж нужен для Printable
                 .write("NAKEDLY\nON ONE SIDE\nAND FOUR SPEAKERS\nHUMMING ON\nTHE OTHER...");
         } else {
             vg.grids
@@ -260,7 +286,7 @@ fn main() {
                 .at(4, 18)
                 .fg(Color::new(0, 255, 127, 255))
                 .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
-                .write(("FLICKERING\n"))
+                .write("FLICKERING\n")
                 .write("NAKEDLY\nON ONE SIDE\nAND FOUR SPEAKERS\nHUMMING ON\nTHE OTHER...");
         }
 
@@ -296,8 +322,15 @@ fn main() {
         vg.grids
             .set_shader_float(chromatic_shader, "offset", aberration);
 
+        // Собираем список рендеринга из иерархии
+        let render_list = hierarchy.collect_render_list(|b| {
+            vg.grids.get(b)
+                .and_then(|buf| vg.grids.glyphset_size(buf.glyphset()).map(|(tw, th)| (buf.w * tw, buf.h * th)))
+                .unwrap_or((0, 0))
+        });
+
         // Двухпроходный рендер: сначала буферы с шейдерами в их текстуры
-        vg.render_offscreen(&mut rl, &thread, main_buf, 0, 0);
+        vg.render_offscreen(&mut rl, &thread, &render_list);
 
         // Потом рисуем всё на экран
         {
@@ -305,7 +338,7 @@ fn main() {
             d.clear_background(Color::new(8, 8, 8, 255));
             puffin::profile_scope!("Offscreen Render");
             // draw рисует дерево + применяет шейдеры к буферам (через фасад)
-            vg.draw(&mut d, main_buf, 0, 0);
+            vg.draw(&mut d, &render_list);
 
             chrome.draw(&mut d);
             d.draw_fps(10, 10);
