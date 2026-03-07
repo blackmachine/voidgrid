@@ -108,6 +108,20 @@ impl Hierarchy {
         }
     }
     
+    pub fn set_root(&mut self, buffer: Option<BufferKey>) -> NodeKey {
+        let key = self.create_node(buffer);
+        self.root = Some(key);
+        key
+    }
+
+    pub fn attach(&mut self, buffer: Option<BufferKey>) -> NodeBuilder {
+        let key = self.create_node(buffer);
+        NodeBuilder {
+            hierarchy: self,
+            node_key: key,
+        }
+    }
+
     pub fn create_node(&mut self, buffer: Option<BufferKey>) -> NodeKey {
         self.nodes.insert(Node {
             buffer,
@@ -187,5 +201,55 @@ impl Hierarchy {
         for &child in &node.children {
             self.process_node(child, screen_x, screen_y, w, h, z_index, opacity, get_size, list);
         }
+    }
+}
+
+pub struct NodeBuilder<'a> {
+    hierarchy: &'a mut Hierarchy,
+    node_key: NodeKey,
+}
+
+impl<'a> NodeBuilder<'a> {
+    pub fn to(self, parent: NodeKey) -> Self {
+        if let Some(node) = self.hierarchy.nodes.get_mut(self.node_key) {
+            node.parent = Some(parent);
+        }
+        if let Some(parent_node) = self.hierarchy.nodes.get_mut(parent) {
+            parent_node.children.push(self.node_key);
+        }
+        self
+    }
+
+    pub fn at(self, x: i32, y: i32) -> Self {
+        if let Some(node) = self.hierarchy.nodes.get_mut(self.node_key) {
+            node.local_x = x;
+            node.local_y = y;
+        }
+        self
+    }
+
+    pub fn with_z(self, policy: ZPolicy) -> Self {
+        if let Some(node) = self.hierarchy.nodes.get_mut(self.node_key) {
+            node.z_policy = policy;
+        }
+        self
+    }
+
+    pub fn anchor(self, anchor: Anchor) -> Self {
+        if let Some(node) = self.hierarchy.nodes.get_mut(self.node_key) {
+            node.anchor = anchor;
+        }
+        self
+    }
+
+    pub fn pivot(self, pivot: Anchor) -> Self {
+        if let Some(node) = self.hierarchy.nodes.get_mut(self.node_key) {
+            node.pivot = pivot;
+        }
+        self
+    }
+
+    pub fn key(self) -> NodeKey {
+        self.node_key
     }
 }

@@ -101,8 +101,7 @@ fn main() {
         .build();
     
     // Создаем корневой узел
-    let root_node = hierarchy.create_node(Some(main_buf));
-    hierarchy.root = Some(root_node);
+    let root_node = hierarchy.set_root(Some(main_buf));
 
     let back_buf = vg
         .grids
@@ -112,10 +111,9 @@ fn main() {
         .build();
     
     // Привязываем back_buf к main_buf
-    let back_node = hierarchy.create_node(Some(back_buf));
-    hierarchy.nodes[back_node].parent = Some(root_node);
-    hierarchy.nodes[back_node].z_policy = ZPolicy::Relative(-1); // Рисуем под родителем
-    hierarchy.nodes[root_node].children.push(back_node);
+    hierarchy.attach(Some(back_buf))
+        .to(root_node)
+        .with_z(ZPolicy::Relative(-1)); // Рисуем под родителем
 
     // Drop zone буфер (маленький, внизу)
     let drop_zone_buf = vg
@@ -126,12 +124,11 @@ fn main() {
         .build();
     
     // Привязываем drop_zone
-    let drop_node = hierarchy.create_node(Some(drop_zone_buf));
-    hierarchy.nodes[drop_node].parent = Some(root_node);
-    hierarchy.nodes[drop_node].local_x = 2 * tile_w as i32;
-    hierarchy.nodes[drop_node].local_y = ((buf_h as i32) - 2) * tile_h as i32;
-    hierarchy.nodes[drop_node].z_policy = ZPolicy::Absolute(100);
-    hierarchy.nodes[root_node].children.push(drop_node);
+    let drop_node = hierarchy.attach(Some(drop_zone_buf))
+        .to(root_node)
+        .at(2 * tile_w as i32, ((buf_h as i32) - 2) * tile_h as i32)
+        .with_z(ZPolicy::Absolute(100))
+        .key();
 
     // Буфер с шейдером chromatic aberration
     let shader_demo_buf = vg
@@ -140,11 +137,9 @@ fn main() {
         .dynamic(true)
         .build();
     
-    let shader_node = hierarchy.create_node(Some(shader_demo_buf));
-    hierarchy.nodes[shader_node].parent = Some(root_node);
-    hierarchy.nodes[shader_node].local_x = 4 * tile_w as i32;
-    hierarchy.nodes[shader_node].local_y = 9 * tile_h as i32;
-    hierarchy.nodes[root_node].children.push(shader_node);
+    hierarchy.attach(Some(shader_demo_buf))
+        .to(root_node)
+        .at(4 * tile_w as i32, 9 * tile_h as i32);
 
     vg.renderer.attach_shader(
         &mut rl,
