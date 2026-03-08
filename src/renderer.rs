@@ -144,7 +144,7 @@ impl Renderer {
     ) {
         // Вычисляем размер текстуры
         let (width, height) = if let Some(buf) = grids.buffers.get(buffer) {
-            if let Some(gs) = grids.glyphsets.get(buf.glyphset()) {
+            if let Some(gs) = grids.assets.glyphsets.get(buf.glyphset()) {
                 let w = buf.w * gs.tile_w + padding * 2;
                 let h = buf.h * gs.tile_h + padding * 2;
                 (w as i32, h as i32)
@@ -276,7 +276,7 @@ impl Renderer {
             let screen_w = d.get_screen_width() as f32;
             let screen_h = d.get_screen_height() as f32;
             
-            if let Some(shader_data) = grids.shaders.get_mut(shader_key) {
+            if let Some(shader_data) = grids.assets.shaders.get_mut(shader_key) {
                 shader_data.apply_uniforms();
                 shader_data.apply_auto_uniforms(
                     (tex_w, tex_h),
@@ -312,7 +312,7 @@ impl Renderer {
             let tex_w = shader_data.render_texture.texture().width as f32;
             let tex_h = shader_data.render_texture.texture().height as f32;
             
-            if let Some(shader) = grids.shaders.get_mut(shader_key) {
+            if let Some(shader) = grids.assets.shaders.get_mut(shader_key) {
                 shader.apply_uniforms();
                 shader.apply_auto_uniforms(
                     (tex_w, tex_h),
@@ -426,7 +426,7 @@ impl Renderer {
             Some(b) => b,
             None => return,
         };
-        let glyphset = match grids.glyphsets.get(glyphset_key) {
+        let glyphset = match grids.assets.glyphsets.get(glyphset_key) {
             Some(g) => g,
             None => return,
         };
@@ -479,8 +479,8 @@ impl Renderer {
                         .copied()
                         .unwrap_or(glyphset.default_global_id);
                     
-                    let (atlas_key, physical_glyph) = grids.global_registry.entries[global_id as usize];
-                    let atlas = &grids.atlases[atlas_key];
+                    let (atlas_key, physical_glyph) = grids.assets.global_registry.entries[global_id as usize];
+                    let atlas = &grids.assets.atlases[atlas_key];
                     let (src, _, _) = atlas.get_glyph_source(physical_glyph);
                     let tex_id = atlas.texture.id;
 
@@ -538,7 +538,7 @@ impl Renderer {
             None => return,
         };
         
-        let glyphset = match grids.glyphsets.get(glyphset_key) {
+        let glyphset = match grids.assets.glyphsets.get(glyphset_key) {
             Some(g) => g,
             None => return,
         };
@@ -612,8 +612,8 @@ impl Renderer {
                         .copied()
                         .unwrap_or(glyphset.default_global_id);
                     
-                    let (atlas_key, physical_glyph) = grids.global_registry.entries[global_id as usize];
-                    let atlas = &grids.atlases[atlas_key];
+                    let (atlas_key, physical_glyph) = grids.assets.global_registry.entries[global_id as usize];
+                    let atlas = &grids.assets.atlases[atlas_key];
                     let (src, _, _) = atlas.get_glyph_source(physical_glyph);
                     let tex_id = atlas.texture.id;
                     

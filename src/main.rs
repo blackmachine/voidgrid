@@ -55,20 +55,20 @@ fn main() {
 
     // Загружаем атласы
     let crt = vg
-        .grids
+        .grids.assets
         .load_atlas(&mut rl, &thread, "assets/crt.json")
         .expect("Failed to load CRT atlas");
 
     // Монтируем атласы в виртуальную файловую систему
-    vg.grids.mount_atlas("fonts/crt", crt);
+    vg.grids.assets.mount_atlas("fonts/crt", crt);
 
     // Создаем основной глифсет из CRT
-    let gs_crt = vg.grids.create_glyphset_from_atlas("composite", crt);
+    let gs_crt = vg.grids.assets.create_glyphset_from_atlas("composite", crt);
     // "Вливаем" в него HUGE атлас (теперь в composite_gs есть и буквы CRT, и стрелки HUGE)
     // vg.grids.merge_atlas(composite_gs, huge);
 
     // Получаем размер тайла (теперь из Glyphset)
-    let (tile_w, tile_h) = vg.grids.glyphset_size(gs_crt).unwrap();
+    let (tile_w, tile_h) = vg.grids.assets.glyphset_size(gs_crt).unwrap();
 
     // Корректируем размер окна
     let window_w = buf_w * tile_w;
@@ -81,7 +81,7 @@ fn main() {
     // ========================================================================
 
     let chromatic_shader = vg
-        .grids
+        .grids.assets
         .load_shader(&mut rl, &thread, "assets/chromatic.fs")
         .expect("Failed to load chromatic shader");
 
@@ -155,7 +155,7 @@ fn main() {
     let mut drop_zone = DropZone::new();
 
     // Выводим содержимое реестра для отладки
-    vg.grids.debug_print_registry();
+    vg.grids.assets.debug_print_registry();
 
     let mut start_time: Instant;
     start_time = Instant::now();
@@ -314,13 +314,13 @@ fn main() {
         puffin::profile_scope!("Prepare Render");
         // Анимируем смещение chromatic aberration
         let aberration = (vg.renderer.shader_time() * 3.0).sin() * 1.5 + 1.5; // от 1 до 5 пикселей
-        vg.grids
+        vg.grids.assets
             .set_shader_float(chromatic_shader, "offset", aberration);
 
         // Собираем список рендеринга из иерархии
         let render_list = hierarchy.collect_render_list(|b| {
-            vg.grids.get(b)
-                .and_then(|buf| vg.grids.glyphset_size(buf.glyphset()).map(|(tw, th)| (buf.w * tw, buf.h * th)))
+            vg.grids.get(b) // get stays in grids
+                .and_then(|buf| vg.grids.assets.glyphset_size(buf.glyphset()).map(|(tw, th)| (buf.w * tw, buf.h * th)))
                 .unwrap_or((0, 0))
         });
 

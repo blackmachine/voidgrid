@@ -173,7 +173,7 @@ impl TextOps for Grids {
             Some(b) => b.glyphset(),
             None => return,
         };
-        let glyphset = match self.glyphsets.get(glyphset_key) {
+        let glyphset = match self.assets.glyphsets.get(glyphset_key) {
             Some(g) => g,
             None => return,
         };
@@ -222,7 +222,7 @@ impl TextOps for Grids {
             None => return,
         };
         
-        if let Some(code) = self.resolve_code(glyphset_key, icon_name) {
+        if let Some(code) = self.assets.resolve_code(glyphset_key, icon_name) {
              if let Some(buf) = self.buffers.get_mut(buffer) {
                 buf.set(x, y, Character::new(code, default_variant_id, fcolor, bcolor));
              }

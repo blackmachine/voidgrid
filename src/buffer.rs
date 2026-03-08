@@ -1,4 +1,4 @@
-use crate::types::{GlyphsetKey, BufferKey, Character};
+use crate::types::{GlyphsetKey, Character};
 
 pub struct Buffer {
     pub name: String,

@@ -12,6 +12,7 @@ pub mod global_registry;
 pub mod glyphset;
 pub mod hierarchy;
 pub mod ui;
+pub mod asset_manager;
 
 use raylib::prelude::*;
 use grids::Grids;
