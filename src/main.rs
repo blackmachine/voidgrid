@@ -131,7 +131,7 @@ fn main() {
     let drop_node = hierarchy.attach(Some(drop_zone_buf))
         .to(root_node)
         .anchor(Anchor::BottomLeft)
-        .at(2 * tile_w as i32, -2 * tile_h as i32)
+        .at(2, -2)
         .with_z(ZPolicy::Absolute(100))
         .key();
 
@@ -144,7 +144,7 @@ fn main() {
     
     hierarchy.attach(Some(shader_demo_buf))
         .to(root_node)
-        .at(4 * tile_w as i32, 9 * tile_h as i32);
+        .at(4, 9);
 
     vg.renderer.attach_shader(
         &mut rl,
@@ -323,9 +323,12 @@ fn main() {
 
         // Собираем список рендеринга из иерархии
         let render_list = hierarchy.collect_render_list(|b| {
-            vg.grids.get(b) // get stays in grids
-                .and_then(|buf| vg.grids.assets.glyphset_size(buf.glyphset()).map(|(tw, th)| (buf.w * tw, buf.h * th)))
-                .unwrap_or((0, 0))
+            if let Some(buf) = vg.grids.get(b) {
+                if let Some((tw, th)) = vg.grids.assets.glyphset_size(buf.glyphset()) {
+                    return (buf.w, buf.h, tw, th);
+                }
+            }
+            (0, 0, 1, 1)
         });
 
         // Двухпроходный рендер: сначала буферы с шейдерами в их текстуры

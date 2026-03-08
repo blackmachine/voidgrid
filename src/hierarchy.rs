@@ -129,18 +129,17 @@ impl Hierarchy {
         })
     }
     
-    pub fn collect_render_list<F>(&self, get_size: F) -> Vec<RenderItem>
-    where F: Fn(BufferKey) -> (u32, u32) {
+    pub fn collect_render_list<F>(&self, get_info: F) -> Vec<RenderItem>
+    where F: Fn(BufferKey) -> (u32, u32, u32, u32) {
         let mut list = Vec::new();
         if let Some(root) = self.root {
-            // Предполагаем, что root находится в (0,0) и имеет размер буфера (если есть)
-            let (w, h) = if let Some(buf) = self.nodes.get(root).and_then(|n| n.buffer) {
-                get_size(buf)
+            let (cols, rows, tile_w, tile_h) = if let Some(buf) = self.nodes.get(root).and_then(|n| n.buffer) {
+                get_info(buf)
             } else {
-                (0, 0)
+                (0, 0, 1, 1)
             };
-            
-            self.process_node(root, 0, 0, w as i32, h as i32, 0, 1.0, &get_size, &mut list);
+            // Передаем root-параметры как родительские (parent_x=0, parent_y=0)
+            self.process_node(root, 0, 0, cols as i32, rows as i32, tile_w as i32, tile_h as i32, 0, 1.0, &get_info, &mut list);
         }
         // Сортируем по Z-index для правильного порядка отрисовки
         list.sort_by_key(|item| item.z_index);
@@ -153,13 +152,15 @@ impl Hierarchy {
         node_key: NodeKey,
         parent_x: i32,
         parent_y: i32,
-        parent_w: i32,
-        parent_h: i32,
+        parent_cols: i32,
+        parent_rows: i32,
+        parent_tile_w: i32,
+        parent_tile_h: i32,
         parent_z: i32,
         parent_opacity: f32,
-        get_size: &F,
+        get_info: &F,
         list: &mut Vec<RenderItem>
-    ) where F: Fn(BufferKey) -> (u32, u32) {
+    ) where F: Fn(BufferKey) -> (u32, u32, u32, u32) {
         let node = match self.nodes.get(node_key) {
             Some(n) => n,
             None => return,
@@ -167,18 +168,29 @@ impl Hierarchy {
         
         if !node.visible { return; }
         
-        let (w, h) = if let Some(buf) = node.buffer {
-            let (bw, bh) = get_size(buf);
-            (bw as i32, bh as i32)
+        let (cols, rows, tile_w, tile_h) = if let Some(buf) = node.buffer {
+            let (c, r, tw, th) = get_info(buf);
+            (c as i32, r as i32, tw as i32, th as i32)
         } else {
-            (0, 0)
+            (0, 0, 1, 1) // фоллбэк для пустых нод
         };
         
-        let (anchor_x, anchor_y) = node.anchor.offset(parent_w, parent_h);
-        let (pivot_x, pivot_y) = node.pivot.offset(w, h);
-        
-        let screen_x = parent_x + anchor_x + node.local_x - pivot_x;
-        let screen_y = parent_y + anchor_y + node.local_y - pivot_y;
+        // Anchor (привязка к родителю) вычисляется в сетке родителя
+        let (anchor_cols, anchor_rows) = node.anchor.offset(parent_cols, parent_rows);
+        let anchor_px_x = anchor_cols * parent_tile_w;
+        let anchor_px_y = anchor_rows * parent_tile_h;
+
+        // Смещение (local_x/y) задано в тайлах родителя
+        let local_px_x = node.local_x * parent_tile_w;
+        let local_px_y = node.local_y * parent_tile_h;
+
+        // Pivot (собственная точка привязки) вычисляется в собственной сетке
+        let (pivot_cols, pivot_rows) = node.pivot.offset(cols, rows);
+        let pivot_px_x = pivot_cols * tile_w;
+        let pivot_px_y = pivot_rows * tile_h;
+
+        let screen_x = parent_x + anchor_px_x + local_px_x - pivot_px_x;
+        let screen_y = parent_y + anchor_px_y + local_px_y - pivot_px_y;
         
         let z_index = match node.z_policy {
             ZPolicy::Relative(z) => parent_z + z,
@@ -199,7 +211,7 @@ impl Hierarchy {
         }
         
         for &child in &node.children {
-            self.process_node(child, screen_x, screen_y, w, h, z_index, opacity, get_size, list);
+            self.process_node(child, screen_x, screen_y, cols, rows, tile_w, tile_h, z_index, opacity, get_info, list);
         }
     }
 }
