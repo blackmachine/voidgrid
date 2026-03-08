@@ -11,6 +11,7 @@ use grids::types::Character;
 use grids::VoidGrid;
 use grids::hierarchy::Hierarchy;
 use grids::pack_loader::PackLoader;
+use grids::vtp;
 
 fn main() {
     puffin::set_scopes_on(true);
@@ -102,11 +103,34 @@ fn main() {
     start_time = Instant::now();
     let current_time = start_time.elapsed().as_secs_f32();
 
+
+
+
+
+
+// Инициализируем парсер VTP
+let mut vtp_parser = vtp::VtpParser::new();
+let mut vtp_test_run = false; // Добавляем флаг
+
+
+
+
+// // make a pause waiting for key pressed
+//     while !rl.window_should_close() && rl.get_key_pressed().is_none() {
+//         let mut d = rl.begin_drawing(&thread);
+//         d.clear_background(Color::BLACK);
+//         d.draw_text("PRESS ANY KEY TO START", 100, 100, 20, Color::WHITE);
+//     }
+
+
+
+
     // ========================================================================
     // ГЛАВНЫЙ ЦИКЛ
     // ========================================================================
 
     let mut is_resized = false;
+
 
     while !rl.window_should_close() {
         puffin::GlobalProfiler::lock().new_frame();
@@ -144,15 +168,42 @@ fn main() {
                 let _ = vg.grids.resize_buffer(main_buf, buf_w, buf_h);
                 let _ = vg.grids.resize_buffer(back_buf, buf_w, buf_h);
 
-                // Обновляем текстуры шейдеров, если размеры буферов изменились
-                // (в данном примере shader_demo_buf не меняет размер, но если бы менял - нужно вызвать это)
-                // vg.renderer.update_buffer_shader_texture(&mut rl, &thread, &vg.grids, shader_demo_buf);
-
-                // Перемещаем drop zone вниз
-                // vg.grids.move_child(main_buf, drop_zone_buf, (2, buf_h - 2));
             }
         }
         let current_time = start_time.elapsed().as_secs_f32();
+
+
+
+
+let mut test_payload = Vec::new();
+
+        // 1. SET_BUFFER ("main_buf" - длина 8!)
+        test_payload.push(0x01); 
+        test_payload.extend_from_slice(&8u16.to_le_bytes()); 
+        test_payload.extend_from_slice(b"main_buf"); 
+
+        // 2. SET_CURSOR (x=10, y=15)
+        test_payload.push(0x02);
+        test_payload.extend_from_slice(&4u16.to_le_bytes());
+        test_payload.extend_from_slice(&15u16.to_le_bytes());
+
+        // 3. SET_FG_COLOR (Yellow: R=255, G=255, B=0, A=255)
+        test_payload.push(0x03);
+        test_payload.extend_from_slice(&[255, 96, 0, 255]);
+
+        // 4. PRINT_STRING ("HELLO FROM VTP!")
+        let text = "[VOID TRANSFER PROTOCOL ACTIVATED]";
+        test_payload.push(0x11);
+        test_payload.extend_from_slice(&(text.len() as u16).to_le_bytes());
+        test_payload.extend_from_slice(text.as_bytes());
+
+        // Имитируем приход байт из сети и скармливаем парсеру
+        vtp_parser.process(&mut vg.grids, &buffers, &test_payload);
+
+
+
+
+
         // --- Строка статуса ---
         if let Some((w, _h)) = vg.grids.buffer_size(main_buf) {
             vg.grids
@@ -195,13 +246,7 @@ fn main() {
                 }
             }
 
-            // Character::new теперь принимает (code, variant_id, fg, bg)
-            // vg.grids.set_char(
-            //     back_buf,
-            //     rx,
-            //     ry,
-            //     Character::new(ch, 0, Color::new(0, 255, 0, alpha), Color::BLANK),
-            // );
+
         }
 
         // --- Буфер с шейдером ---
