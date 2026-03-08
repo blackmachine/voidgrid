@@ -16,6 +16,7 @@ pub mod ui;
 pub mod asset_manager;
 pub mod resource_pack;
 pub mod pack_loader;
+pub mod vtp;
 
 use raylib::prelude::*;
 use grids::Grids;
