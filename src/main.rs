@@ -10,7 +10,6 @@ use grids::text_ops::TextOps;
 use grids::types::Character;
 use grids::VoidGrid;
 use grids::hierarchy::Hierarchy;
-use grids::resource_pack::DirProvider;
 use grids::pack_loader::PackLoader;
 
 fn main() {
@@ -53,7 +52,11 @@ fn main() {
     let mut vg = VoidGrid::new();
 
     // Создаем провайдер ресурсов
-    let mut provider = DirProvider::new(".");
+    let zip_file = std::fs::File::open("crtdemo.vpk")
+        .expect("Не удалось найти файл crtdemo.vpk");
+
+    let mut provider = grids::resource_pack::ZipProvider::new(zip_file)
+        .expect("Не удалось прочитать структуру ZIP-архива");
 
     // Инициализируем (загрузка шейдеров и т.д.)
     vg.init(&mut provider, &mut rl, &thread);
@@ -61,15 +64,12 @@ fn main() {
     // Инициализируем иерархию
     let mut hierarchy = Hierarchy::new();
 
-    // 1. Инициализируем провайдер файлов (текущая папка)
-    let mut provider = DirProvider::new(".");
-
     // 2. Загружаем сцену из манифеста
     let buffers = PackLoader::load_pack(
         &mut vg, 
         &mut hierarchy, 
         &mut provider, 
-        "assets/manifest.json", 
+        "manifest.json", 
         &mut rl, 
         &thread
     ).expect("Failed to load scene from manifest");
