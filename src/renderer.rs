@@ -15,6 +15,7 @@ use crate::grids::Grids;
 use crate::types::{BufferKey, ShaderKey, Blend, GlyphsetKey};
 use crate::types::Rotation;
 use crate::hierarchy::RenderItem;
+use crate::resource_pack::ResourceProvider;
 
 /// Кэшированный батч отрисовки
 struct Batch {
@@ -114,11 +115,13 @@ impl Renderer {
     /// Загрузить шейдер маски (internal)
     pub fn load_mask_shader(
         &mut self,
+        provider: &mut dyn ResourceProvider,
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
         shader_path: &str,
     ) -> Result<(), String> {
-        let shader = rl.load_shader(thread, None, Some(shader_path));
+        let code = provider.read_string(shader_path).map_err(|e| e.to_string())?;
+        let shader = rl.load_shader_from_memory(thread, None, Some(&code));
         
         self.loc_mask_tex = shader.get_shader_location("texture1");
         self.loc_mask_src_rect = shader.get_shader_location("maskSrcRect");

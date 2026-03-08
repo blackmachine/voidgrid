@@ -10,6 +10,7 @@ use grids::text_ops::TextOps;
 use grids::types::Character;
 use grids::VoidGrid;
 use grids::hierarchy::{Hierarchy, ZPolicy, Anchor};
+use grids::resource_pack::{DirProvider, ResourceProvider};
 
 fn main() {
     puffin::set_scopes_on(true);
@@ -50,13 +51,16 @@ fn main() {
     // Создаем фасад
     let mut vg = VoidGrid::new();
 
+    // Создаем провайдер ресурсов
+    let mut provider = DirProvider::new(".");
+
     // Инициализируем (загрузка шейдеров и т.д.)
-    vg.init(&mut rl, &thread);
+    vg.init(&mut provider, &mut rl, &thread);
 
     // Загружаем атласы
     let crt = vg
         .grids.assets
-        .load_atlas(&mut rl, &thread, "assets/crt.json")
+        .load_atlas(&mut provider, &mut rl, &thread, "assets/crt.json")
         .expect("Failed to load CRT atlas");
 
     // Монтируем атласы в виртуальную файловую систему
@@ -82,7 +86,7 @@ fn main() {
 
     let chromatic_shader = vg
         .grids.assets
-        .load_shader(&mut rl, &thread, "assets/chromatic.fs")
+        .load_shader(&mut provider, &mut rl, &thread, "assets/chromatic.fs")
         .expect("Failed to load chromatic shader");
 
     // ========================================================================

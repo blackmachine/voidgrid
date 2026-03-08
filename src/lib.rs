@@ -14,6 +14,7 @@ pub mod glyphset;
 pub mod hierarchy;
 pub mod ui;
 pub mod asset_manager;
+pub mod resource_pack;
 
 use raylib::prelude::*;
 use grids::Grids;
@@ -38,9 +39,14 @@ impl VoidGrid {
     
     /// Инициализация системных ресурсов (например, маски)
     /// Рекомендуется вызывать сразу после создания
-    pub fn init(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
+    pub fn init(
+        &mut self,
+        provider: &mut dyn crate::resource_pack::ResourceProvider,
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread
+    ) {
         // Загружаем встроенный шейдер маски (пока из файла)
-        if let Err(e) = self.renderer.load_mask_shader(rl, thread, "assets/mask.fs") {
+        if let Err(e) = self.renderer.load_mask_shader(provider, rl, thread, "assets/mask.fs") {
             eprintln!("VoidGrid Warning: Failed to load mask shader: {}", e);
         }
     }

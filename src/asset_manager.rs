@@ -8,6 +8,7 @@ use crate::shader::{ShaderData, UniformValue};
 use crate::assets::{self, AssetCache};
 use crate::global_registry::GlobalGlyphRegistry;
 use crate::glyphset::Glyphset;
+use crate::resource_pack::ResourceProvider;
 
 pub struct AssetManager {
     pub atlases: SlotMap<AtlasKey, Atlas>,
@@ -37,12 +38,18 @@ impl AssetManager {
     // ========================================================================
     
     /// Загрузить шейдер из файла
-    pub fn load_shader(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, fragment_path: &str) -> Result<ShaderKey, String> {
+    pub fn load_shader(
+        &mut self,
+        provider: &mut dyn ResourceProvider,
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        fragment_path: &str
+    ) -> Result<ShaderKey, String> {
         if let Some(&key) = self.cache.shaders.get(fragment_path) {
             return Ok(key);
         }
         
-        let shader_data = assets::load_shader_from_file(rl, thread, fragment_path)?;
+        let shader_data = assets::load_shader(provider, rl, thread, fragment_path)?;
         let key = self.shaders.insert(shader_data);
         self.cache.shaders.insert(fragment_path.to_string(), key);
         Ok(key)
@@ -103,12 +110,16 @@ impl AssetManager {
     }
     
     /// Загрузить палитру из JSON
-    pub fn load_palette(&mut self, path: &str) -> Result<PaletteKey, Box<dyn std::error::Error>> {
+    pub fn load_palette(
+        &mut self,
+        provider: &mut dyn ResourceProvider,
+        path: &str
+    ) -> Result<PaletteKey, Box<dyn std::error::Error>> {
         if let Some(&key) = self.cache.palettes.get(path) {
             return Ok(key);
         }
         
-        let palette = assets::load_palette_from_file(path)?;
+        let palette = assets::load_palette(provider, path)?;
         let key = self.palettes.insert(palette);
         self.cache.palettes.insert(path.to_string(), key);
         Ok(key)
@@ -141,12 +152,18 @@ impl AssetManager {
     // ========================================================================
     
     /// Загрузить атлас из JSON-файла
-    pub fn load_atlas(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, config_path: &str) -> Result<AtlasKey, Box<dyn std::error::Error>> {
+    pub fn load_atlas(
+        &mut self,
+        provider: &mut dyn ResourceProvider,
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        config_path: &str
+    ) -> Result<AtlasKey, Box<dyn std::error::Error>> {
         if let Some(&key) = self.cache.atlases.get(config_path) {
             return Ok(key);
         }
         
-        let atlas = assets::load_atlas_from_file(rl, thread, config_path)?;
+        let atlas = assets::load_atlas(provider, rl, thread, config_path)?;
         let key = self.atlases.insert(atlas);
         self.cache.atlases.insert(config_path.to_string(), key);
         Ok(key)
