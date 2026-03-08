@@ -9,8 +9,9 @@ use grids::input::{DropZone, WindowChrome};
 use grids::text_ops::TextOps;
 use grids::types::Character;
 use grids::VoidGrid;
-use grids::hierarchy::{Hierarchy, ZPolicy, Anchor};
-use grids::resource_pack::{DirProvider, ResourceProvider};
+use grids::hierarchy::Hierarchy;
+use grids::resource_pack::DirProvider;
+use grids::pack_loader::PackLoader;
 
 fn main() {
     puffin::set_scopes_on(true);
@@ -57,103 +58,39 @@ fn main() {
     // Инициализируем (загрузка шейдеров и т.д.)
     vg.init(&mut provider, &mut rl, &thread);
 
-    // Загружаем атласы
-    let crt = vg
-        .grids.assets
-        .load_atlas(&mut provider, &mut rl, &thread, "assets/crt.json")
-        .expect("Failed to load CRT atlas");
+    // Инициализируем иерархию
+    let mut hierarchy = Hierarchy::new();
 
-    // Монтируем атласы в виртуальную файловую систему
-    vg.grids.assets.mount_atlas("fonts/crt", crt);
+    // 1. Инициализируем провайдер файлов (текущая папка)
+    let mut provider = DirProvider::new(".");
 
-    // Создаем основной глифсет из CRT
-    let gs_crt = vg.grids.assets.create_glyphset_from_atlas("composite", crt);
-    // "Вливаем" в него HUGE атлас (теперь в composite_gs есть и буквы CRT, и стрелки HUGE)
-    // vg.grids.merge_atlas(composite_gs, huge);
+    // 2. Загружаем сцену из манифеста
+    let buffers = PackLoader::load_pack(
+        &mut vg, 
+        &mut hierarchy, 
+        &mut provider, 
+        "assets/manifest.json", 
+        &mut rl, 
+        &thread
+    ).expect("Failed to load scene from manifest");
 
-    // Получаем размер тайла (теперь из Glyphset)
-    let (tile_w, tile_h) = vg.grids.assets.glyphset_size(gs_crt).unwrap();
+    // 3. Извлекаем ключи буферов для использования в главном цикле
+    let main_buf = buffers["main_buf"];
+    let back_buf = buffers["back_buf"];
+    let drop_zone_buf = buffers["drop_zone_buf"];
+    let shader_demo_buf = buffers["shader_demo_buf"];
+
+    // 4. Получаем размеры тайла из корневого буфера для настройки окна
+    let main_glyphset = vg.grids.get(main_buf).unwrap().glyphset();
+    let (tile_w, tile_h) = vg.grids.assets.glyphset_size(main_glyphset).unwrap();
 
     // Корректируем размер окна
     let window_w = buf_w * tile_w;
     let window_h = buf_h * tile_h;
-
     rl.set_window_size(window_w as i32, window_h as i32);
 
-    // ========================================================================
-    // Загружаем шейдер chromatic aberration
-    // ========================================================================
-
-    let chromatic_shader = vg
-        .grids.assets
-        .load_shader(&mut provider, &mut rl, &thread, "assets/chromatic.fs")
-        .expect("Failed to load chromatic shader");
-
-    // ========================================================================
-    // Создаём буферы
-    // ========================================================================
-
-    // Инициализируем иерархию
-    let mut hierarchy = Hierarchy::new();
-
-    // Используем BufferBuilder
-    let main_buf = vg
-        .grids
-        .buffer("main", buf_w, buf_h, gs_crt)
-        .z_index(1)
-        // .dynamic(true)
-        .build();
-    
-    // Создаем корневой узел
-    let root_node = hierarchy.set_root(Some(main_buf));
-
-    let back_buf = vg
-        .grids
-        .buffer("back", buf_w, buf_h, gs_crt)
-        .z_index(-1)
-        .dynamic(true) // <--- Включаем immediate mode для этого буфера
-        .build();
-    
-    // Привязываем back_buf к main_buf
-    hierarchy.attach(Some(back_buf))
-        .to(root_node)
-        .with_z(ZPolicy::Relative(-1)); // Рисуем под родителем
-
-    // Drop zone буфер (маленький, внизу)
-    let drop_zone_buf = vg
-        .grids
-        .buffer("drop_zone", 40, 1, gs_crt)
-        .z_index(100)
-        .dynamic(true)
-        .build();
-    
-    // Привязываем drop_zone
-    let drop_node = hierarchy.attach(Some(drop_zone_buf))
-        .to(root_node)
-        .anchor(Anchor::BottomLeft)
-        .at(2, -2)
-        .with_z(ZPolicy::Absolute(100))
-        .key();
-
-    // Буфер с шейдером chromatic aberration
-    let shader_demo_buf = vg
-        .grids
-        .buffer("shader_demo", 40, 1, gs_crt)
-        .dynamic(true)
-        .build();
-    
-    hierarchy.attach(Some(shader_demo_buf))
-        .to(root_node)
-        .at(4, 9);
-
-    vg.renderer.attach_shader(
-        &mut rl,
-        &thread,
-        &vg.grids,
-        shader_demo_buf,
-        chromatic_shader,
-        4,
-    );
+    // Восстанавливаем доступ к шейдеру для анимации в цикле
+    let chromatic_shader = vg.grids.assets.load_shader(&mut provider, &mut rl, &thread, "assets/chromatic.fs").expect("Failed to load chromatic shader");
 
     // Drop zone state
     let mut drop_zone = DropZone::new();
