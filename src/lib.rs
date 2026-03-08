@@ -1,4 +1,5 @@
 pub mod types;
+pub mod buffer_manager;
 pub mod atlas;
 pub mod palette;
 pub mod shader;
