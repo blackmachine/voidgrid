@@ -77,18 +77,3 @@ impl Buffer {
         self.glyphset = glyphset;
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct Attachment {
-    pub parent: BufferKey,
-    pub child: BufferKey,
-    pub x: u32,
-    pub y: u32,
-    pub z_index: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct OrphanedChild {
-    pub position: (u32, u32),
-    pub buffer: BufferKey,
-}

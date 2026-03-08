@@ -24,7 +24,7 @@ use slotmap::SlotMap;
 use crate::types::*;
 use crate::types::Transform;
 use crate::atlas::Atlas;
-use crate::buffer::{Attachment, Buffer, OrphanedChild};
+use crate::buffer::Buffer;
 use crate::palette::Palette;
 use crate::shader::{ShaderData, UniformValue};
 use crate::assets::{self, AssetCache};
@@ -45,8 +45,6 @@ pub struct Grids {
     pub(crate) buffers: SlotMap<BufferKey, Buffer>,
     pub(crate) palettes: SlotMap<PaletteKey, Palette>,
     pub(crate) shaders: SlotMap<ShaderKey, ShaderData>,
-    /// Связи родитель-потомок (вынесены из Buffer)
-    pub(crate) attachments: Vec<Attachment>,
     pub(crate) global_registry: GlobalGlyphRegistry,
     
     // Post-process
@@ -65,7 +63,6 @@ impl Grids {
             buffers: SlotMap::with_key(),
             palettes: SlotMap::with_key(),
             shaders: SlotMap::with_key(),
-            attachments: Vec::new(),
             global_registry: GlobalGlyphRegistry::new(),
             post_process_shader: None,
             cache: AssetCache::new(),
@@ -560,8 +557,6 @@ impl Grids {
     
     /// Удалить буфер
     pub fn remove_buffer(&mut self, key: BufferKey) -> Option<Buffer> {
-        // Удаляем все связи с этим буфером
-        self.attachments.retain(|a| a.parent != key && a.child != key);
         self.buffers.remove(key)
     }
     
@@ -608,11 +603,8 @@ impl Grids {
     }
     
     /// Изменить размер буфера, сохраняя содержимое
-    /// Возвращает список потомков, оказавшихся за пределами нового размера
-    pub fn resize_buffer(&mut self, buffer: BufferKey, new_w: u32, new_h: u32) -> Vec<OrphanedChild> {
+    pub fn resize_buffer(&mut self, buffer: BufferKey, new_w: u32, new_h: u32) {
         let default_code = 32;
-        
-        let mut orphaned = Vec::new();
         
         if let Some(buf) = self.buffers.get_mut(buffer) {
             let old_data = std::mem::take(&mut buf.data);
@@ -635,105 +627,11 @@ impl Grids {
                 }
             }
         }
-        
-        // Находим осиротевших потомков
-        for att in &self.attachments {
-            if att.parent == buffer && (att.x >= new_w || att.y >= new_h) {
-                orphaned.push(OrphanedChild {
-                    position: (att.x, att.y),
-                    buffer: att.child,
-                });
-            }
-        }
-        
-        orphaned
     }
     
     /// Получить размер буфера
     pub fn buffer_size(&self, buffer: BufferKey) -> Option<(u32, u32)> {
         self.buffers.get(buffer).map(|b| (b.w, b.h))
-    }
-    
-    // ========================================================================
-    // Связи родитель-потомок
-    // ========================================================================
-    
-    /// Привязать дочерний буфер к ячейке родителя
-    pub fn attach(&mut self, parent: BufferKey, pos: (u32, u32), child: BufferKey) {
-        self.attach_z(parent, pos, child, 0);
-    }
-    
-    /// Привязать дочерний буфер с заданным z_index
-    pub fn attach_z(&mut self, parent: BufferKey, pos: (u32, u32), child: BufferKey, z_index: i32) {
-        // Проверяем, нет ли уже такой связи
-        let exists = self.attachments.iter().any(|a| 
-            a.parent == parent && a.child == child && a.x == pos.0 && a.y == pos.1
-        );
-        
-        if !exists {
-            self.attachments.push(Attachment {
-                parent,
-                child,
-                x: pos.0,
-                y: pos.1,
-                z_index,
-            });
-            // Сортируем по z_index для правильного порядка отрисовки
-            self.attachments.sort_by_key(|a| a.z_index);
-        }
-    }
-    
-    /// Отвязать конкретный дочерний буфер от ячейки
-    pub fn detach(&mut self, parent: BufferKey, pos: (u32, u32), child: BufferKey) {
-        self.attachments.retain(|a| 
-            !(a.parent == parent && a.child == child && a.x == pos.0 && a.y == pos.1)
-        );
-    }
-    
-    /// Отвязать все дочерние буферы от ячейки
-    pub fn detach_all_at(&mut self, parent: BufferKey, pos: (u32, u32)) {
-        self.attachments.retain(|a| 
-            !(a.parent == parent && a.x == pos.0 && a.y == pos.1)
-        );
-    }
-    
-    /// Отвязать все дочерние буферы от родителя
-    pub fn detach_all_children(&mut self, parent: BufferKey) {
-        self.attachments.retain(|a| a.parent != parent);
-    }
-    
-    /// Переместить дочерний буфер в другую ячейку
-    pub fn move_child(&mut self, parent: BufferKey, child: BufferKey, new_pos: (u32, u32)) {
-        for att in &mut self.attachments {
-            if att.parent == parent && att.child == child {
-                att.x = new_pos.0;
-                att.y = new_pos.1;
-                return;
-            }
-        }
-    }
-    
-    /// Получить список дочерних буферов в ячейке
-    pub fn children_at(&self, parent: BufferKey, pos: (u32, u32)) -> Vec<BufferKey> {
-        self.attachments.iter()
-            .filter(|a| a.parent == parent && a.x == pos.0 && a.y == pos.1)
-            .map(|a| a.child)
-            .collect()
-    }
-    
-    /// Получить все связи родителя
-    pub fn all_children(&self, parent: BufferKey) -> Vec<((u32, u32), BufferKey)> {
-        self.attachments.iter()
-            .filter(|a| a.parent == parent)
-            .map(|a| ((a.x, a.y), a.child))
-            .collect()
-    }
-    
-    /// Найти позицию дочернего буфера у родителя
-    pub fn find_child_position(&self, parent: BufferKey, child: BufferKey) -> Option<(u32, u32)> {
-        self.attachments.iter()
-            .find(|a| a.parent == parent && a.child == child)
-            .map(|a| (a.x, a.y))
     }
     
     // ========================================================================
@@ -830,35 +728,6 @@ impl Grids {
         }
     }
     
-    /// Очистить буфер и всех потомков (рекурсивно)
-    pub fn clear_tree(&mut self, root: BufferKey) {
-        self.clear_tree_internal(root, MAX_BUFFER_DEPTH);
-    }
-    
-    fn clear_tree_internal(&mut self, buffer: BufferKey, depth: u8) {
-        if depth == 0 {
-            return;
-        }
-        
-        // Очищаем сам буфер
-        let default_code = 32;
-        
-        if let Some(buf) = self.buffers.get_mut(buffer) {
-            buf.clear(Character::blank(default_code));
-        }
-        
-        // Собираем ключи детей
-        let children: Vec<BufferKey> = self.attachments.iter()
-            .filter(|a| a.parent == buffer)
-            .map(|a| a.child)
-            .collect();
-        
-        // Очищаем детей рекурсивно
-        for child in children {
-            self.clear_tree_internal(child, depth - 1);
-        }
-    }
-    
     // ========================================================================
     // Hit Testing
     // ========================================================================
@@ -894,73 +763,6 @@ impl Grids {
             None
         }
     }
-    
-    /// Найти буфер под курсором (включая дочерние)
-    pub fn buffer_at_point(
-        &self,
-        root: BufferKey,
-        screen_x: i32,
-        screen_y: i32,
-        buf_screen_x: i32,
-        buf_screen_y: i32,
-    ) -> Option<(BufferKey, u32, u32)> {
-        self.buffer_at_point_internal(root, screen_x, screen_y, buf_screen_x, buf_screen_y, MAX_BUFFER_DEPTH)
-    }
-    
-    fn buffer_at_point_internal(
-        &self,
-        buffer_key: BufferKey,
-        screen_x: i32,
-        screen_y: i32,
-        buf_screen_x: i32,
-        buf_screen_y: i32,
-        depth: u8,
-    ) -> Option<(BufferKey, u32, u32)> {
-        if depth == 0 {
-            return None;
-        }
-        
-        let buffer = self.buffers.get(buffer_key)?;
-        
-        // Пропускаем невидимые буферы
-        if !buffer.visible {
-            return None;
-        }
-        
-        let gs = self.glyphsets.get(buffer.glyphset)?;
-        
-        let tile_w = gs.tile_w as f32;
-        let tile_h = gs.tile_h as f32;
-        
-        // Собираем детей этого буфера
-        let children: Vec<_> = self.attachments.iter()
-            .filter(|a| a.parent == buffer_key)
-            .collect();
-        
-        // Сначала проверяем дочерние (они поверх) — в обратном порядке z_index
-        for att in children.iter().rev() {
-            let child_screen_x = buf_screen_x + (att.x as f32 * tile_w) as i32;
-            let child_screen_y = buf_screen_y + (att.y as f32 * tile_h) as i32;
-            
-            if let Some(result) = self.buffer_at_point_internal(
-                att.child,
-                screen_x,
-                screen_y,
-                child_screen_x,
-                child_screen_y,
-                depth - 1,
-            ) {
-                return Some(result);
-            }
-        }
-        
-        // Проверяем сам буфер
-        if let Some((cx, cy)) = self.screen_to_cell(buffer_key, screen_x, screen_y, buf_screen_x, buf_screen_y) {
-            return Some((buffer_key, cx, cy));
-        }
-        
-        None
-    }
 }
 
 impl Default for Grids {
@@ -983,7 +785,6 @@ pub struct BufferBuilder<'a> {
     dynamic: bool,
     visible: bool,
     opacity: f32,
-    parent: Option<(BufferKey, u32, u32)>, // (parent_key, x, y)
 }
 
 impl<'a> BufferBuilder<'a> {
@@ -996,7 +797,6 @@ impl<'a> BufferBuilder<'a> {
             dynamic: false,
             visible: true,
             opacity: 1.0,
-            parent: None,
         }
     }
 
@@ -1020,20 +820,11 @@ impl<'a> BufferBuilder<'a> {
         self
     }
 
-    pub fn attach_to(mut self, parent: BufferKey, x: u32, y: u32) -> Self {
-        self.parent = Some((parent, x, y));
-        self
-    }
-
     pub fn build(self) -> BufferKey {
         let key = self.grids.create_buffer_z(&self.name, self.w, self.h, self.glyphset, self.z_index);
         self.grids.set_buffer_dynamic(key, self.dynamic);
         self.grids.set_visible(key, self.visible);
         self.grids.set_opacity(key, self.opacity);
-        
-        if let Some((parent, x, y)) = self.parent {
-            self.grids.attach_z(parent, (x, y), key, self.z_index);
-        }
         
         key
     }
