@@ -1,0 +1,71 @@
+{
+  "name": "Main Terminal Scene",
+  "version": "1.0",
+  "assets": {
+    "atlases": {
+      "crt": "assets/crt.json"
+    },
+    "shaders": {
+      "chromatic": "assets/chromatic.fs"
+    }
+  },
+  "glyphsets": {
+    "composite": {
+      "base": "crt",
+      "merges": []
+    }
+  },
+  "scene": {
+    "nodes": [
+      {
+        "id": "main_buf",
+        "type": "buffer",
+        "name": "main",
+        "width": 64,
+        "height": 32,
+        "glyphset": "composite",
+        "z_index": 1,
+        "dynamic": false
+      },
+      {
+        "id": "back_buf",
+        "type": "buffer",
+        "name": "back",
+        "width": 64,
+        "height": 32,
+        "glyphset": "composite",
+        "z_index": -1,
+        "dynamic": true,
+        "parent": "main_buf"
+      },
+      {
+        "id": "drop_zone_buf",
+        "type": "buffer",
+        "name": "drop_zone",
+        "width": 40,
+        "height": 1,
+        "glyphset": "composite",
+        "z_index": 100,
+        "dynamic": true,
+        "parent": "main_buf",
+        "anchor": "BottomLeft",
+        "local_x": 2,
+        "local_y": -2
+      },
+      {
+        "id": "shader_demo_buf",
+        "type": "buffer",
+        "name": "shader_demo",
+        "width": 40,
+        "height": 1,
+        "glyphset": "composite",
+        "dynamic": true,
+        "parent": "main_buf",
+        "local_x": 4,
+        "local_y": 9,
+        "shader": "chromatic",
+        "shader_padding": 4
+      }
+    ]
+  }
+}

@@ -15,6 +15,7 @@ pub mod hierarchy;
 pub mod ui;
 pub mod asset_manager;
 pub mod resource_pack;
+pub mod pack_loader;
 
 use raylib::prelude::*;
 use grids::Grids;
