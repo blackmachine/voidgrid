@@ -1,0 +1,12 @@
+﻿[package]
+name = "grids"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+raylib = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+slotmap = { workspace = true }
+zip = { workspace = true }

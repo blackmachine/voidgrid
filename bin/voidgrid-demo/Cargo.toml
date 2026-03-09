@@ -1,0 +1,12 @@
+﻿[package]
+name = "voidgrid-demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+raylib = { workspace = true }
+rand = { workspace = true }
+puffin = { workspace = true }
+puffin_http = { workspace = true }
+grids = { path = "../../crates/voidgrid-core" }
+vtp-protocol = { path = "../../crates/vtp-protocol" }

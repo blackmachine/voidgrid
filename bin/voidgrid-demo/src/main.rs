@@ -11,11 +11,12 @@ use raylib::prelude::*;
 
 use grids::input::{DropZone, WindowChrome};
 use grids::text_ops::TextOps;
-use grids::types::Character;
+
 use grids::VoidGrid;
 use grids::hierarchy::Hierarchy;
 use grids::pack_loader::PackLoader;
-use grids::vtp;
+use vtp_protocol::{VtpParser, VtpCommand}; // Добавь это
+use grids::types::{Character, Blend, Transform};
 
 fn main() {
     puffin::set_scopes_on(true);
@@ -113,7 +114,13 @@ fn main() {
 
 
 // Инициализируем парсер VTP
-let mut vtp_parser = vtp::VtpParser::new();
+let mut vtp_parser = VtpParser::new();
+    let mut vtp_active_buffer = None;
+    let mut vtp_cursor_x = 0;
+    let mut vtp_cursor_y = 0;
+    let mut vtp_fg_color = Color::WHITE;
+    let mut vtp_bg_color = Color::BLANK;
+    let mut vtp_variant_id = 0;
 
 // Канал для передачи сырых байт из сети в главный цикл
 let (tx, rx) = mpsc::channel::<Vec<u8>>();
@@ -203,8 +210,48 @@ thread::spawn(move || {
         let current_time = start_time.elapsed().as_secs_f32();
 
         // Обрабатываем все пакеты, пришедшие из сети за этот кадр
-        while let Ok(network_data) = rx.try_recv() {
-            vtp_parser.process(&mut vg.grids, &buffers, &network_data);
+while let Ok(network_data) = rx.try_recv() {
+            vtp_parser.push_bytes(&network_data);
+            
+            while let Some(cmd) = vtp_parser.next_command() {
+                match cmd {
+                    VtpCommand::SetBuffer(name) => {
+                        if let Some(&key) = buffers.get(&name) {
+                            vtp_active_buffer = Some(key);
+                            vtp_cursor_x = 0;
+                            vtp_cursor_y = 0;
+                        }
+                    }
+                    VtpCommand::SetCursor { x, y } => {
+                        vtp_cursor_x = x;
+                        vtp_cursor_y = y;
+                    }
+                    VtpCommand::SetFgColor(c) => vtp_fg_color = Color::new(c.r, c.g, c.b, c.a),
+                    VtpCommand::SetBgColor(c) => vtp_bg_color = Color::new(c.r, c.g, c.b, c.a),
+                    VtpCommand::SetVariant(v) => vtp_variant_id = v,
+                    VtpCommand::PrintChar(code) => {
+                        if let Some(key) = vtp_active_buffer {
+                            if let Some(ch) = char::from_u32(code) {
+                                vg.grids.set_char(
+                                    key, vtp_cursor_x, vtp_cursor_y, 
+                                    Character::full(ch as u32, vtp_variant_id, vtp_fg_color, vtp_bg_color, Blend::Alpha, Blend::Alpha, Transform::default(), None)
+                                );
+                                vtp_cursor_x += 1;
+                            }
+                        }
+                    }
+                    VtpCommand::PrintString(text) => {
+                        if let Some(key) = vtp_active_buffer {
+                            vg.grids.print(key)
+                                .at(vtp_cursor_x, vtp_cursor_y)
+                                .color(vtp_fg_color, vtp_bg_color)
+                                .write(text.as_ref());
+                            vtp_cursor_x += text.chars().count() as u32;
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
 
         // --- Строка статуса ---

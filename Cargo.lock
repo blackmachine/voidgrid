@@ -350,9 +350,6 @@ name = "grids"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "puffin",
- "puffin_http",
- "rand",
  "raylib",
  "serde",
  "serde_json",
@@ -953,6 +950,26 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "voidgrid-demo"
+version = "0.1.0"
+dependencies = [
+ "grids",
+ "puffin",
+ "puffin_http",
+ "rand",
+ "raylib",
+ "vtp-protocol",
+]
+
+[[package]]
+name = "voidgrid-resource-packs"
+version = "0.1.0"
+
+[[package]]
+name = "vtp-protocol"
+version = "0.1.0"
 
 [[package]]
 name = "wasip2"
