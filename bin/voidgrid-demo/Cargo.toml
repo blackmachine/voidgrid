@@ -8,5 +8,5 @@ raylib = { workspace = true }
 rand = { workspace = true }
 puffin = { workspace = true }
 puffin_http = { workspace = true }
-grids = { path = "../../crates/voidgrid-core" }
-vtp-protocol = { path = "../../crates/vtp-protocol" }
+voidgrid = { path = "../../crates/voidgrid-core" }
+voidgrid-vtp = { path = "../../crates/voidgrid-vtp" }

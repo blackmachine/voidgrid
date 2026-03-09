@@ -1,4 +1,4 @@
-pub mod types;
+﻿pub mod types;
 pub mod buffer_manager;
 pub mod atlas;
 pub mod palette;
@@ -16,22 +16,22 @@ pub mod ui;
 pub mod asset_manager;
 pub mod resource_pack;
 pub mod pack_loader;
-pub mod vtp;
+pub use voidgrid_vtp as vtp;
 
 use raylib::prelude::*;
 use grids::Grids;
 use renderer::Renderer;
 use hierarchy::RenderItem;
 
-/// Фасад для движка VoidGrid.
-/// Объединяет управление данными (Grids) и отрисовку (Renderer).
+/// Р¤Р°СЃР°Рґ РґР»СЏ РґРІРёР¶РєР° VoidGrid.
+/// РћР±СЉРµРґРёРЅСЏРµС‚ СѓРїСЂР°РІР»РµРЅРёРµ РґР°РЅРЅС‹РјРё (Grids) Рё РѕС‚СЂРёСЃРѕРІРєСѓ (Renderer).
 pub struct VoidGrid {
     pub grids: Grids,
     pub renderer: Renderer,
 }
 
 impl VoidGrid {
-    /// Создать новый экземпляр движка
+    /// РЎРѕР·РґР°С‚СЊ РЅРѕРІС‹Р№ СЌРєР·РµРјРїР»СЏСЂ РґРІРёР¶РєР°
     pub fn new() -> Self {
         Self {
             grids: Grids::new(),
@@ -39,26 +39,26 @@ impl VoidGrid {
         }
     }
     
-    /// Инициализация системных ресурсов (например, маски)
-    /// Рекомендуется вызывать сразу после создания
+    /// РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ СЃРёСЃС‚РµРјРЅС‹С… СЂРµСЃСѓСЂСЃРѕРІ (РЅР°РїСЂРёРјРµСЂ, РјР°СЃРєРё)
+    /// Р РµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РІС‹Р·С‹РІР°С‚СЊ СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ СЃРѕР·РґР°РЅРёСЏ
     pub fn init(
         &mut self,
         provider: &mut dyn crate::resource_pack::ResourceProvider,
         rl: &mut RaylibHandle,
         thread: &RaylibThread
     ) {
-        // Загружаем встроенный шейдер маски (пока из файла)
+        // Р—Р°РіСЂСѓР¶Р°РµРј РІСЃС‚СЂРѕРµРЅРЅС‹Р№ С€РµР№РґРµСЂ РјР°СЃРєРё (РїРѕРєР° РёР· С„Р°Р№Р»Р°)
         if let Err(e) = self.renderer.load_mask_shader(provider, rl, thread, "assets/mask.fs") {
             eprintln!("VoidGrid Warning: Failed to load mask shader: {}", e);
         }
     }
     
-    /// Отрисовка всего дерева буферов
+    /// РћС‚СЂРёСЃРѕРІРєР° РІСЃРµРіРѕ РґРµСЂРµРІР° Р±СѓС„РµСЂРѕРІ
     pub fn draw(&mut self, d: &mut RaylibDrawHandle, render_list: &[RenderItem]) {
         self.renderer.draw(d, &mut self.grids, render_list);
     }
     
-    /// Предварительный рендер (для шейдеров)
+    /// РџСЂРµРґРІР°СЂРёС‚РµР»СЊРЅС‹Р№ СЂРµРЅРґРµСЂ (РґР»СЏ С€РµР№РґРµСЂРѕРІ)
     pub fn render_offscreen(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, render_list: &[RenderItem]) {
         self.renderer.render_offscreen(rl, thread, &mut self.grids, render_list);
     }

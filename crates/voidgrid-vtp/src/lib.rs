@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+﻿#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VtpColor {
     pub r: u8,
     pub g: u8,

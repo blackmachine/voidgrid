@@ -1,7 +1,7 @@
 ﻿[workspace]
 resolver = "2"
 members = [
-    "crates/vtp-protocol",
+    "crates/voidgrid-vtp",
     "crates/voidgrid-core",
     "crates/voidgrid-resource-packs",
     "bin/voidgrid-demo"

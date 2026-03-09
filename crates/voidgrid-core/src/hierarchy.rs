@@ -114,7 +114,7 @@ impl Hierarchy {
         key
     }
 
-    pub fn attach(&mut self, buffer: Option<BufferKey>) -> NodeBuilder {
+    pub fn attach(&mut self, buffer: Option<BufferKey>) -> NodeBuilder<'_> {
         let key = self.create_node(buffer);
         NodeBuilder {
             hierarchy: self,
