@@ -2,6 +2,10 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 
 use std::time::Instant;
+use std::net::TcpListener;
+use std::sync::mpsc;
+use std::thread;
+use std::io::Read;
 
 use raylib::prelude::*;
 
@@ -110,17 +114,43 @@ fn main() {
 
 // Инициализируем парсер VTP
 let mut vtp_parser = vtp::VtpParser::new();
-let mut vtp_test_run = false; // Добавляем флаг
 
+// Канал для передачи сырых байт из сети в главный цикл
+let (tx, rx) = mpsc::channel::<Vec<u8>>();
 
+// Фоновый поток TCP-сервера
+thread::spawn(move || {
+    let listener = TcpListener::bind("127.0.0.1:8080").expect("Failed to bind TCP port 8080");
+    println!("VTP Server listening on 127.0.0.1:8080");
 
-
-// // make a pause waiting for key pressed
-//     while !rl.window_should_close() && rl.get_key_pressed().is_none() {
-//         let mut d = rl.begin_drawing(&thread);
-//         d.clear_background(Color::BLACK);
-//         d.draw_text("PRESS ANY KEY TO START", 100, 100, 20, Color::WHITE);
-//     }
+    for stream in listener.incoming() {
+        match stream {
+            Ok(mut stream) => {
+                println!("VTP Client connected!");
+                let mut buffer = [0u8; 4096];
+                loop {
+                    match stream.read(&mut buffer) {
+                        Ok(0) => {
+                            println!("VTP Client disconnected");
+                            break;
+                        }
+                        Ok(n) => {
+                            // Отправляем прочитанные байты в главный поток
+                            if tx.send(buffer[..n].to_vec()).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("TCP read error: {}", e);
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(e) => eprintln!("TCP connection failed: {}", e),
+        }
+    }
+});
 
 
 
@@ -172,43 +202,16 @@ let mut vtp_test_run = false; // Добавляем флаг
         }
         let current_time = start_time.elapsed().as_secs_f32();
 
-
-
-
-let mut test_payload = Vec::new();
-
-        // 1. SET_BUFFER ("main_buf" - длина 8!)
-        test_payload.push(0x01); 
-        test_payload.extend_from_slice(&8u16.to_le_bytes()); 
-        test_payload.extend_from_slice(b"main_buf"); 
-
-        // 2. SET_CURSOR (x=10, y=15)
-        test_payload.push(0x02);
-        test_payload.extend_from_slice(&4u16.to_le_bytes());
-        test_payload.extend_from_slice(&15u16.to_le_bytes());
-
-        // 3. SET_FG_COLOR (Yellow: R=255, G=255, B=0, A=255)
-        test_payload.push(0x03);
-        test_payload.extend_from_slice(&[255, 96, 0, 255]);
-
-        // 4. PRINT_STRING ("HELLO FROM VTP!")
-        let text = "[VOID TRANSFER PROTOCOL ACTIVATED]";
-        test_payload.push(0x11);
-        test_payload.extend_from_slice(&(text.len() as u16).to_le_bytes());
-        test_payload.extend_from_slice(text.as_bytes());
-
-        // Имитируем приход байт из сети и скармливаем парсеру
-        vtp_parser.process(&mut vg.grids, &buffers, &test_payload);
-
-
-
-
+        // Обрабатываем все пакеты, пришедшие из сети за этот кадр
+        while let Ok(network_data) = rx.try_recv() {
+            vtp_parser.process(&mut vg.grids, &buffers, &network_data);
+        }
 
         // --- Строка статуса ---
         if let Some((w, _h)) = vg.grids.buffer_size(main_buf) {
             vg.grids
                 .print(main_buf)
-                .at(w.saturating_sub(29), 0)
+                .at(w.saturating_sub(29), 1)
                 .fg(Color::new(0, 255, 127, 255))
                 .write(("[ESC]", "inverted"))
                 .write(" EXIT ")
@@ -256,7 +259,7 @@ let mut test_payload = Vec::new();
         if ((current_time * 5.0).floor() % 2.0) == 0.0 {
             vg.grids
                 .print(main_buf)
-                .at(4, 18)
+                .at(4, 3)
                 .fg(Color::new(0, 255, 127, 255))
                 .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
                 .write(("FLICKERING\n", "inverted")) // Исправлено: убраны лишние скобки, но здесь кортеж нужен для Printable
@@ -264,7 +267,7 @@ let mut test_payload = Vec::new();
         } else {
             vg.grids
                 .print(main_buf)
-                .at(4, 18)
+                .at(4, 3)
                 .fg(Color::new(0, 255, 127, 255))
                 .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
                 .write("FLICKERING\n")
@@ -325,7 +328,7 @@ let mut test_payload = Vec::new();
             vg.draw(&mut d, &render_list);
 
             chrome.draw(&mut d);
-            d.draw_fps(10, 10);
+            // d.draw_fps(10, 10);
         }
     }
 }
