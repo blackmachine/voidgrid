@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "voidgrid"
 version = "0.1.0"
 edition = "2021"
@@ -9,5 +9,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 slotmap = { workspace = true }
-zip = { workspace = true }
 voidgrid-vtp = { path = "../voidgrid-vtp" }
+
