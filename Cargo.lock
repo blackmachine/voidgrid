@@ -949,7 +949,6 @@ dependencies = [
  "serde_json",
  "slotmap",
  "voidgrid-vtp",
- "zip",
 ]
 
 [[package]]
@@ -961,12 +960,18 @@ dependencies = [
  "rand",
  "raylib",
  "voidgrid",
+ "voidgrid-resource-packs",
  "voidgrid-vtp",
 ]
 
 [[package]]
 name = "voidgrid-resource-packs"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "voidgrid",
+ "zip",
+]
 
 [[package]]
 name = "voidgrid-vtp"

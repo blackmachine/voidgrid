@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "voidgrid-demo"
 version = "0.1.0"
 edition = "2021"
@@ -10,3 +10,6 @@ puffin = { workspace = true }
 puffin_http = { workspace = true }
 voidgrid = { path = "../../crates/voidgrid-core" }
 voidgrid-vtp = { path = "../../crates/voidgrid-vtp" }
+
+voidgrid-resource-packs = { path = "../../crates/voidgrid-resource-packs" }
+
