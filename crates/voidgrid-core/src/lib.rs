@@ -12,6 +12,8 @@ pub mod input;
 pub mod global_registry;
 pub mod glyphset;
 pub mod hierarchy;
+pub mod terminal;
+pub mod events;
 pub mod ui;
 pub mod asset_manager;
 pub mod resource_pack;
@@ -28,6 +30,8 @@ use hierarchy::RenderItem;
 pub struct VoidGrid {
     pub grids: Grids,
     pub renderer: Renderer,
+    pub terminal: terminal::TerminalState,
+    pub events: events::EventQueue,
 }
 
 impl VoidGrid {
@@ -36,6 +40,8 @@ impl VoidGrid {
         Self {
             grids: Grids::new(),
             renderer: Renderer::new(),
+            terminal: terminal::TerminalState::new(),
+            events: events::EventQueue::new(),
         }
     }
     
@@ -69,3 +75,5 @@ impl Default for VoidGrid {
         Self::new()
     }
 }
+
+
