@@ -11,6 +11,7 @@ pub enum Event {
     MouseRelease { x: f32, y: f32, button: MouseButton },
     MouseMove { x: f32, y: f32 },
     KeyPress { key: u32 },
+    FileDrop { path: String },
     WindowResize { width: i32, height: i32 },
 }
 
@@ -33,3 +34,4 @@ impl EventQueue {
         self.frame_events.clear();
     }
 }
+

@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+﻿#![allow(dead_code)]
 
 use std::collections::HashMap;
 use anyhow::{Context, Result};
@@ -23,6 +23,8 @@ struct ManifestDTO {
 struct AssetConfigDTO {
     atlases: HashMap<String, String>,
     shaders: HashMap<String, String>,
+    #[serde(default)]
+    scripts: HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -55,6 +57,11 @@ struct NodeDTO {
     shader_padding: Option<u32>,
 }
 
+pub struct LoadedPack {
+    pub buffers: HashMap<String, BufferKey>,
+    pub scripts: HashMap<String, String>,
+}
+
 pub struct PackLoader;
 
 impl PackLoader {
@@ -65,14 +72,14 @@ impl PackLoader {
         manifest_path: &str,
         rl: &mut RaylibHandle,
         thread: &RaylibThread
-    ) -> Result<HashMap<String, BufferKey>> {
-        // Парсинг
+    ) -> Result<LoadedPack> {
+        // РџР°СЂСЃРёРЅРі
         let json = provider.read_string(manifest_path)
             .context("Failed to read manifest file")?;
         let manifest: ManifestDTO = serde_json::from_str(&json)
             .context("Failed to parse manifest JSON")?;
 
-        // Атласы
+        // РђС‚Р»Р°СЃС‹
         let mut atlas_map: HashMap<String, AtlasKey> = HashMap::new();
         for (name, path) in &manifest.assets.atlases {
             let key = vg.grids.assets.load_atlas(provider, rl, thread, path)
@@ -80,7 +87,7 @@ impl PackLoader {
             atlas_map.insert(name.clone(), key);
         }
 
-        // Шейдеры
+        // РЁРµР№РґРµСЂС‹
         let mut shader_map: HashMap<String, ShaderKey> = HashMap::new();
         for (name, path) in &manifest.assets.shaders {
             let key = vg.grids.assets.load_shader(provider, rl, thread, path)
@@ -88,7 +95,7 @@ impl PackLoader {
             shader_map.insert(name.clone(), key);
         }
 
-        // Глифсеты
+        // Р“Р»РёС„СЃРµС‚С‹
         let mut glyphset_map: HashMap<String, GlyphsetKey> = HashMap::new();
         for (name, config) in &manifest.glyphsets {
             let base_atlas_key = atlas_map.get(&config.base)
@@ -106,7 +113,7 @@ impl PackLoader {
             glyphset_map.insert(name.clone(), gs_key);
         }
 
-        // Буферы (Сцена)
+        // Р‘СѓС„РµСЂС‹ (РЎС†РµРЅР°)
         let mut node_keys: HashMap<String, NodeKey> = HashMap::new();
         let mut buffer_keys: HashMap<String, BufferKey> = HashMap::new();
 
@@ -114,7 +121,7 @@ impl PackLoader {
             let gs_key = *glyphset_map.get(&node.glyphset)
                 .ok_or_else(|| anyhow::anyhow!("Glyphset '{}' not found for node '{}'", node.glyphset, node.name))?;
 
-            // Создаем буфер
+            // РЎРѕР·РґР°РµРј Р±СѓС„РµСЂ
             let mut buf_builder = vg.grids.buffer(&node.name, node.width, node.height, gs_key);
             if let Some(z) = node.z_index {
                 buf_builder = buf_builder.z_index(z);
@@ -125,7 +132,7 @@ impl PackLoader {
             let buf_key = buf_builder.build();
             buffer_keys.insert(node.id.clone(), buf_key);
 
-            // Привязка в иерархию
+            // РџСЂРёРІСЏР·РєР° РІ РёРµСЂР°СЂС…РёСЋ
             let mut builder = hierarchy.attach(Some(buf_key));
 
             if let (Some(x), Some(y)) = (node.local_x, node.local_y) {
@@ -162,7 +169,7 @@ impl PackLoader {
             };
             node_keys.insert(node.id.clone(), node_key);
 
-            // Шейдер
+            // РЁРµР№РґРµСЂ
             if let Some(shader_name) = &node.shader {
                 if let Some(shader_key) = shader_map.get(shader_name) {
                     let padding = node.shader_padding.unwrap_or(0);
@@ -171,6 +178,17 @@ impl PackLoader {
             }
         }
 
-        Ok(buffer_keys)
+                // Р§РёС‚Р°РµРј РёСЃС…РѕРґРЅС‹Р№ РєРѕРґ СЃРєСЂРёРїС‚РѕРІ
+        let mut loaded_scripts = HashMap::new();
+        for (name, path) in &manifest.assets.scripts {
+            let code = provider.read_string(path)
+                .map_err(|e| anyhow::anyhow!("Failed to load script '{}' at {}: {}", name, path, e))?;
+            loaded_scripts.insert(name.clone(), code);
+        }
+
+        Ok(LoadedPack {
+            buffers: buffer_keys,
+            scripts: loaded_scripts,
+        })
     }
 }

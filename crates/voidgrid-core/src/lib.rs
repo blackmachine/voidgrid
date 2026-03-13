@@ -14,6 +14,7 @@ pub mod glyphset;
 pub mod hierarchy;
 pub mod terminal;
 pub mod events;
+pub mod scripting;
 pub mod ui;
 pub mod asset_manager;
 pub mod resource_pack;
@@ -75,5 +76,6 @@ impl Default for VoidGrid {
         Self::new()
     }
 }
+
 
 

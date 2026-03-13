@@ -19,7 +19,7 @@ use voidgrid_vtp::{VtpParser, VtpCommand};
 use voidgrid::terminal::Action;
 use voidgrid::events::{Event, MouseButton};
 use voidgrid::types::Character;
-
+use voidgrid::resource_pack::ResourceProvider;
 fn main() {
     puffin::set_scopes_on(true);
 
@@ -73,7 +73,7 @@ fn main() {
     let mut hierarchy = Hierarchy::new();
 
     // 2. Р вЂ”Р В°Р С–РЎР‚РЎС“Р В¶Р В°Р ВµР С РЎРѓРЎвЂ Р ВµР Р…РЎС“ Р С‘Р В· Р СР В°Р Р…Р С‘РЎвЂћР ВµРЎРѓРЎвЂљР В°
-    let buffers = PackLoader::load_pack(
+    let pack = PackLoader::load_pack(
         &mut vg, 
         &mut hierarchy, 
         &mut provider, 
@@ -83,11 +83,11 @@ fn main() {
     ).expect("Failed to load scene from manifest");
 
     // 3. Р ВР В·Р Р†Р В»Р ВµР С”Р В°Р ВµР С Р С”Р В»РЎР‹РЎвЂЎР С‘ Р В±РЎС“РЎвЂћР ВµРЎР‚Р С•Р Р† Р Т‘Р В»РЎРЏ Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ Р Р† Р С–Р В»Р В°Р Р†Р Р…Р С•Р С РЎвЂ Р С‘Р С”Р В»Р Вµ
-    vg.terminal.register_buffers(buffers.clone());
-    let main_buf = buffers["main_buf"];
-    let back_buf = buffers["back_buf"];
-    let drop_zone_buf = buffers["drop_zone_buf"];
-    let shader_demo_buf = buffers["shader_demo_buf"];
+    vg.terminal.register_buffers(pack.buffers.clone());
+    let main_buf = pack.buffers["main_buf"];
+    let back_buf = pack.buffers["back_buf"];
+    let drop_zone_buf = pack.buffers["drop_zone_buf"];
+    let shader_demo_buf = pack.buffers["shader_demo_buf"];
 
     // 4. Р СџР С•Р В»РЎС“РЎвЂЎР В°Р ВµР С РЎР‚Р В°Р В·Р СР ВµРЎР‚РЎвЂ№ РЎвЂљР В°Р в„–Р В»Р В° Р С‘Р В· Р С”Р С•РЎР‚Р Р…Р ВµР Р†Р С•Р С–Р С• Р В±РЎС“РЎвЂћР ВµРЎР‚Р В° Р Т‘Р В»РЎРЏ Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘ Р С•Р С”Р Р…Р В°
     let main_glyphset = vg.grids.get(main_buf).unwrap().glyphset();
@@ -164,7 +164,42 @@ thread::spawn(move || {
     // Р вЂњР вЂєР С’Р вЂ™Р СњР В«Р в„ў Р В¦Р ВР С™Р вЂє
     // ========================================================================
 
-    let mut is_resized = false;
+        // --- Rhai Initialization ---
+    let mut script_engine = voidgrid::scripting::ScriptEngine::new();
+    let demo_script = r#"
+        fn update(time) {
+            set_buffer("main_buf");
+            
+            set_fg(255, 200, 50, 255);
+            set_cursor(4, 15);
+            write_text(">>> HELLO FROM RHAI SCRIPT! <<<");
+            
+            set_fg(100, 255, 100, 255);
+            set_cursor(4, 17);
+            write_text("UPDATE LOOP: " + time.to_string() + "       ");
+        }
+    "#;
+    
+    if let Err(e) = script_engine.load_script("demo_system", demo_script) {
+        eprintln!("{}", e);
+    }
+
+    // if let Ok(pack_script) = provider.read_string("assets/ui.rhai") {
+    //     if let Err(e) = script_engine.load_script("pack_ui", &pack_script) {
+    //         eprintln!("{}", e);
+    //     }
+    // }
+
+    script_engine.run_init();
+    
+    // РђРІС‚Рѕ-Р·Р°РіСЂСѓР·РєР° РІСЃРµС… СЃРєСЂРёРїС‚РѕРІ РёР· РјР°РЅРёС„РµСЃС‚Р°
+    for (name, code) in &pack.scripts {
+        if let Err(e) = script_engine.load_script(name, code) {
+            eprintln!("Failed to load pack script '{}': {}", name, e);
+        }
+    }
+    // ---------------------------
+        let mut is_resized = false;
 
 
     while !rl.window_should_close() {
@@ -199,6 +234,13 @@ thread::spawn(move || {
         while let Some(key) = rl.get_key_pressed() {
             vg.events.push(Event::KeyPress { key: key as u32 });
         }
+        
+        if rl.is_file_dropped() {
+            let files = rl.load_dropped_files();
+            for path in files.paths() {
+                vg.events.push(Event::FileDrop { path: path.to_string() });
+            }
+        }
         // -----------------------------
         puffin::GlobalProfiler::lock().new_frame();
         puffin::profile_scope!("Main Loop");
@@ -217,7 +259,7 @@ thread::spawn(move || {
         }
 
         // --- Р С›Р В±РЎР‚Р В°Р В±Р С•РЎвЂљР С”Р В° drag-n-drop ---
-        if let Some(filename) = drop_zone.update(&mut rl) {
+        if let Some(filename) = drop_zone.update(&vg.events.frame_events) {
             println!("Dropped: {}", filename);
         }
 
@@ -257,6 +299,11 @@ while let Ok(network_data) = rx.try_recv() {
             }
         }
 // --- Р РЋРЎвЂљРЎР‚Р С•Р С”Р В° РЎРѓРЎвЂљР В°РЎвЂљРЎС“РЎРѓР В° ---
+                // --- Execute Rhai Script Frame ---
+        script_engine.run_update(current_time);
+        for action in script_engine.take_actions() {
+            vg.terminal.apply_action(&mut vg.grids, action);
+        }
         if let Some((w, _h)) = vg.grids.buffer_size(main_buf) {
             vg.grids
                 .print(main_buf)
@@ -381,6 +428,11 @@ while let Ok(network_data) = rx.try_recv() {
         }
     }
 }
+
+
+
+
+
 
 
 
