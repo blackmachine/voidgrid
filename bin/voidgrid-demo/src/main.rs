@@ -173,10 +173,7 @@ thread::spawn(move || {
             set_fg(255, 200, 50, 255);
             set_cursor(4, 15);
             write_text(">>> HELLO FROM RHAI SCRIPT! <<<");
-            
-            set_fg(100, 255, 100, 255);
-            set_cursor(4, 17);
-            write_text("UPDATE LOOP: " + time.to_string() + "       ");
+
         }
     "#;
     
@@ -300,7 +297,7 @@ while let Ok(network_data) = rx.try_recv() {
         }
 // --- Р РЋРЎвЂљРЎР‚Р С•Р С”Р В° РЎРѓРЎвЂљР В°РЎвЂљРЎС“РЎРѓР В° ---
                 // --- Execute Rhai Script Frame ---
-        script_engine.run_update(current_time);
+        script_engine.run_update(current_time, &vg.events.frame_events);
         for action in script_engine.take_actions() {
             vg.terminal.apply_action(&mut vg.grids, action);
         }
@@ -428,6 +425,7 @@ while let Ok(network_data) = rx.try_recv() {
         }
     }
 }
+
 
 
 
