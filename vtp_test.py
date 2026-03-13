@@ -48,7 +48,7 @@ def main():
     send_vtp(init_payload)
 
     current_x = 4
-    current_y = 13
+    current_y = 25
 
     print("\n[ КИНЕМАТОГРАФИЧНАЯ ПЕЧАТНАЯ МАШИНКА ]")
     print("Вводи текст (латиницей) и нажимай Enter.\n")
