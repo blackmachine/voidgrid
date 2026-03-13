@@ -298,6 +298,7 @@ while let Ok(network_data) = rx.try_recv() {
 // --- Р РЋРЎвЂљРЎР‚Р С•Р С”Р В° РЎРѓРЎвЂљР В°РЎвЂљРЎС“РЎРѓР В° ---
                 // --- Execute Rhai Script Frame ---
         script_engine.run_update(current_time, &vg.events.frame_events);
+        
         for action in script_engine.take_actions() {
             vg.terminal.apply_action(&mut vg.grids, action);
         }
