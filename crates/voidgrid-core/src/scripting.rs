@@ -9,6 +9,7 @@ pub struct ScriptEngine {
     engine: Engine,
     scope: Scope<'static>,
     asts: HashMap<String, AST>,
+    states: HashMap<String, Dynamic>,
     action_queue: Arc<Mutex<Vec<Action>>>,
     buffer_sizes: Arc<Mutex<HashMap<String, (u32, u32)>>>,
 }
@@ -16,7 +17,7 @@ pub struct ScriptEngine {
 impl ScriptEngine {
     pub fn new() -> Self {
         let mut engine = Engine::new();
-        engine.set_max_expr_depths(0, 0); // РћС‚РєР»СЋС‡Р°РµРј РїР°СЂР°РЅРѕРёРґР°Р»СЊРЅС‹Рµ Р»РёРјРёС‚С‹
+        engine.set_max_expr_depths(0, 0);
         let action_queue = Arc::new(Mutex::new(Vec::new()));
         let buffer_sizes = Arc::new(Mutex::new(HashMap::new()));
 
@@ -29,6 +30,8 @@ impl ScriptEngine {
         engine.register_fn("set_cursor", move |x: i64, y: i64| {
             q_cur.lock().unwrap().push(Action::SetCursor(x as u32, y as u32));
         });
+
+
 
         let q_print = action_queue.clone();
         engine.register_fn("write_text", move |text: rhai::ImmutableString| {
@@ -58,6 +61,7 @@ impl ScriptEngine {
             engine,
             scope: Scope::new(),
             asts: HashMap::new(),
+            states: HashMap::new(),
             action_queue,
             buffer_sizes,
         }
@@ -67,6 +71,7 @@ impl ScriptEngine {
         match self.engine.compile(script_text) {
             Ok(ast) => {
                 self.asts.insert(name.to_string(), ast);
+                self.states.insert(name.to_string(), Dynamic::from(Map::new()));
                 Ok(())
             }
             Err(e) => Err(format!("Script compile error [{}]: {}", name, e)),
@@ -74,10 +79,31 @@ impl ScriptEngine {
     }
 
     pub fn run_init(&mut self) {
-        let asts_to_run: Vec<AST> = self.asts.values().cloned().collect();
-        for ast in asts_to_run {
+        let keys: Vec<String> = self.asts.keys().cloned().collect();
+        
+        for name in keys {
+            let ast = self.asts.get(&name).unwrap().clone();
+            
             if let Err(e) = self.engine.run_ast_with_scope(&mut self.scope, &ast) {
-                eprintln!("Script Init Error: {}", e);
+                eprintln!("Script Init Eval Error [{}]: {}", name, e);
+            }
+
+            if let Some(state) = self.states.get_mut(&name) {
+                let options = rhai::CallFnOptions::new().bind_this_ptr(state);
+                let result: Result<(), _> = self.engine.call_fn_with_options(
+                    options,
+                    &mut self.scope,
+                    &ast,
+                    "init",
+                    ()
+                );
+                
+                if let Err(e) = result {
+                    let err_str = e.to_string();
+                    if !err_str.contains("not found") && !err_str.contains("functions") {
+                        eprintln!("Rhai Init Error [{}]: {}", name, err_str);
+                    }
+                }
             }
         }
     }
@@ -92,14 +118,9 @@ impl ScriptEngine {
         }
     }
 
-    // РўР•РџР•Р Р¬ РџР РРќРРњРђР•Рў РњРђРЎРЎРР’ РЎРћР‘Р«РўРР™!
-        pub fn run_update(&mut self, time: f32, frame_events: &[Event]) {
-        // --- РћР±РЅРѕРІР»СЏРµРј РіР»РѕР±Р°Р»СЊРЅСѓСЋ РїР°РјСЏС‚СЊ СЃРєСЂРёРїС‚РѕРІ (Scope) ---
-        // Р­С‚Рё РїРµСЂРµРјРµРЅРЅС‹Рµ Р±СѓРґСѓС‚ РґРѕСЃС‚СѓРїРЅС‹ РІ Р»СЋР±РѕРј СЃРєСЂРёРїС‚Рµ РєР°Рє РєРѕРЅСЃС‚Р°РЅС‚С‹!
+    pub fn run_update(&mut self, time: f32, frame_events: &[Event]) {
         self.scope.set_or_push("TIME", time as f64);
         
-        // ---
-        // 1. РљРѕРЅРІРµСЂС‚РёСЂСѓРµРј Rust Events РІ Rhai Array of Maps
         let mut rhai_events = Array::new();
         for ev in frame_events {
             let mut map = Map::new();
@@ -131,27 +152,32 @@ impl ScriptEngine {
                     map.insert("type".into(), Dynamic::from("FileDrop"));
                     map.insert("path".into(), Dynamic::from(path.clone()));
                 }
-                _ => {} // MouseMove РїРѕРєР° РёРіРЅРѕСЂРёСЂСѓРµРј, С‡С‚РѕР±С‹ РЅРµ СЃРїР°РјРёС‚СЊ РІ СЃРєСЂРёРїС‚ РєР°Р¶РґС‹Р№ РєР°РґСЂ
+                _ => {} 
             }
             if !map.is_empty() {
                 rhai_events.push(Dynamic::from_map(map));
             }
         }
 
-        // 2. Р’С‹Р·С‹РІР°РµРј СЃРєСЂРёРїС‚С‹, РїРµСЂРµРґР°РІР°СЏ РёРј РІСЂРµРјСЏ Рё РјР°СЃСЃРёРІ СЃРѕР±С‹С‚РёР№
-        let asts_to_run: Vec<AST> = self.asts.values().cloned().collect();
-        for ast in asts_to_run {
-            let result: Result<(), Box<rhai::EvalAltResult>> = self.engine.call_fn(
-                &mut self.scope, 
-                &ast, 
-                "update", 
-                (rhai_events.clone(),) // РџРµСЂРµРґР°РµРј 2 Р°СЂРіСѓРјРµРЅС‚Р°!
-            );
+        let keys: Vec<String> = self.asts.keys().cloned().collect();
+        for name in keys {
+            let ast = self.asts.get(&name).unwrap().clone();
             
-            if let Err(e) = result {
-                let err_str = e.to_string();
-                if !err_str.contains("not found") && !err_str.contains("functions") {
-                    eprintln!("Rhai Update Error: {}", err_str);
+            if let Some(state) = self.states.get_mut(&name) {
+                let options = rhai::CallFnOptions::new().bind_this_ptr(state);
+                let result: Result<(), _> = self.engine.call_fn_with_options(
+                    options,
+                    &mut self.scope,
+                    &ast,
+                    "update",
+                    (rhai_events.clone(),)
+                );
+                
+                if let Err(e) = result {
+                    let err_str = e.to_string();
+                    if !err_str.contains("not found") && !err_str.contains("functions") {
+                        eprintln!("Rhai Update Error [{}]: {}", name, err_str);
+                    }
                 }
             }
         }
@@ -164,5 +190,3 @@ impl ScriptEngine {
         actions
     }
 }
-
-

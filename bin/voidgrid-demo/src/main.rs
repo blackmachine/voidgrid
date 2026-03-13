@@ -164,30 +164,8 @@ thread::spawn(move || {
     // Р вЂњР вЂєР С’Р вЂ™Р СњР В«Р в„ў Р В¦Р ВР С™Р вЂє
     // ========================================================================
 
-        // --- Rhai Initialization ---
+            // --- Rhai Initialization ---
     let mut script_engine = voidgrid::scripting::ScriptEngine::new();
-    let demo_script = r#"
-        fn update(time) {
-            set_buffer("main_buf");
-            
-            set_fg(255, 200, 50, 255);
-            set_cursor(4, 15);
-            write_text(">>> HELLO FROM RHAI SCRIPT! <<<");
-
-        }
-    "#;
-    
-    if let Err(e) = script_engine.load_script("demo_system", demo_script) {
-        eprintln!("{}", e);
-    }
-
-    // if let Ok(pack_script) = provider.read_string("assets/ui.rhai") {
-    //     if let Err(e) = script_engine.load_script("pack_ui", &pack_script) {
-    //         eprintln!("{}", e);
-    //     }
-    // }
-
-    script_engine.run_init();
     
     // РђРІС‚Рѕ-Р·Р°РіСЂСѓР·РєР° РІСЃРµС… СЃРєСЂРёРїС‚РѕРІ РёР· РјР°РЅРёС„РµСЃС‚Р°
     for (name, code) in &pack.scripts {
@@ -195,6 +173,9 @@ thread::spawn(move || {
             eprintln!("Failed to load pack script '{}': {}", name, e);
         }
     }
+
+    // Р’РђР–РќРћ: Р’С‹Р·С‹РІР°РµРј run_init() С‚РѕР»СЊРєРѕ РџРћРЎР›Р• Р·Р°РіСЂСѓР·РєРё РІСЃРµС… СЃРєСЂРёРїС‚РѕРІ РёР· РїР°РєР°!
+    script_engine.run_init();
     // ---------------------------
         let mut is_resized = false;
 
@@ -297,6 +278,7 @@ while let Ok(network_data) = rx.try_recv() {
         }
 // --- Р РЋРЎвЂљРЎР‚Р С•Р С”Р В° РЎРѓРЎвЂљР В°РЎвЂљРЎС“РЎРѓР В° ---
                 // --- Execute Rhai Script Frame ---
+        script_engine.sync_state(&vg.grids, &pack.buffers);
         script_engine.run_update(current_time, &vg.events.frame_events);
         
         for action in script_engine.take_actions() {
@@ -426,6 +408,8 @@ while let Ok(network_data) = rx.try_recv() {
         }
     }
 }
+
+
 
 
 

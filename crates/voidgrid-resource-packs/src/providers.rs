@@ -1,4 +1,4 @@
-use std::fs::File;
+﻿use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use anyhow::{Context, Result};
@@ -25,7 +25,11 @@ impl ResourceProvider for DirProvider {
 
     fn read_string(&mut self, path: &str) -> Result<String> {
         let full_path = self.base_path.join(path);
-        std::fs::read_to_string(&full_path).with_context(|| format!("Failed to read string from file: {:?}", full_path))
+        let content = std::fs::read_to_string(&full_path)
+            .with_context(|| format!("Failed to read string from file: {:?}", full_path))?;
+        
+        // РЈРґР°Р»СЏРµРј РЅРµРІРёРґРёРјС‹Р№ BOM, РєРѕС‚РѕСЂС‹Р№ РґРѕР±Р°РІР»СЏСЋС‚ СЂРµРґР°РєС‚РѕСЂС‹
+        Ok(content.strip_prefix('\u{FEFF}').unwrap_or(&content).to_string())
     }
 }
 
@@ -55,6 +59,8 @@ impl ResourceProvider for ZipProvider {
         let mut file = self.archive.by_name(&normalized_path)?;
         let mut buffer = String::new();
         file.read_to_string(&mut buffer)?;
-        Ok(buffer)
+        
+        // РЈРґР°Р»СЏРµРј РЅРµРІРёРґРёРјС‹Р№ BOM, РєРѕС‚РѕСЂС‹Р№ РґРѕР±Р°РІР»СЏСЋС‚ СЂРµРґР°РєС‚РѕСЂС‹
+        Ok(buffer.strip_prefix('\u{FEFF}').unwrap_or(&buffer).to_string())
     }
 }
