@@ -20,10 +20,11 @@ use voidgrid::terminal::Action;
 use voidgrid::events::{Event, MouseButton};
 use voidgrid::types::Character;
 use voidgrid::resource_pack::ResourceProvider;
+
 fn main() {
     puffin::set_scopes_on(true);
 
-    // Р вЂ”Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµР С РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚ Р Р…Р В° Р С—Р С•РЎР‚РЎвЂљРЎС“ 8585
+    // Запускаем сервер на порту 8585
     let _puffin_server = match puffin_http::Server::new("127.0.0.1:8585") {
         Ok(server) => {
             println!("Puffin server started on http://127.0.0.1:8585");
@@ -35,11 +36,11 @@ fn main() {
         }
     };
 
-    // Р СњР В°РЎвЂЎР В°Р В»РЎРЉР Р…РЎвЂ№Р Вµ РЎР‚Р В°Р В·Р СР ВµРЎР‚РЎвЂ№ Р В±РЎС“РЎвЂћР ВµРЎР‚Р В° Р Р† РЎРѓР С‘Р СР Р†Р С•Р В»Р В°РЎвЂ¦
+    // Начальные размеры буфера в символах
     let mut buf_w: u32 = 64;
     let mut buf_h: u32 = 32;
 
-    // Р ВР Р…Р С‘РЎвЂ Р С‘Р В°Р В»Р С‘Р В·Р В°РЎвЂ Р С‘РЎРЏ Р С•Р С”Р Р…Р В° (undecorated)
+    // Инициализация окна (undecorated)
     let (mut rl, thread) = raylib::init()
         .size(800, 600)
         .title("Grids TUI System")
@@ -49,30 +50,30 @@ fn main() {
 
     rl.set_target_fps(60);
 
-    // Window chrome (Р С”Р Р…Р С•Р С—Р С”Р С‘ Р В·Р В°Р С”РЎР‚РЎвЂ№РЎвЂљР С‘РЎРЏ, maximize Р С‘ drag handle)
+    // Window chrome (кнопки закрытия, maximize и drag handle)
     let mut chrome = WindowChrome::new(800, 600);
 
     // ========================================================================
-    // Р ВР Р…Р С‘РЎвЂ Р С‘Р В°Р В»Р С‘Р В·Р В°РЎвЂ Р С‘РЎРЏ Grids
+    // Инициализация Grids
     // ========================================================================
 
-    // Р РЋР С•Р В·Р Т‘Р В°Р ВµР С РЎвЂћР В°РЎРѓР В°Р Т‘
+    // Создаем фасад
     let mut vg = VoidGrid::new();
 
-    // Р РЋР С•Р В·Р Т‘Р В°Р ВµР С Р С—РЎР‚Р С•Р Р†Р В°Р в„–Р Т‘Р ВµРЎР‚ РЎР‚Р ВµРЎРѓРЎС“РЎР‚РЎРѓР С•Р Р†
+    // Создаем провайдер ресурсов
     let zip_file = std::fs::File::open("crtdemo.vpk")
-        .expect("Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р Р…Р В°Р в„–РЎвЂљР С‘ РЎвЂћР В°Р в„–Р В» crtdemo.vpk");
+        .expect("Не удалось найти файл crtdemo.vpk");
 
     let mut provider = voidgrid_resource_packs::ZipProvider::new(zip_file)
-        .expect("Р СњР Вµ РЎС“Р Т‘Р В°Р В»Р С•РЎРѓРЎРЉ Р С—РЎР‚Р С•РЎвЂЎР С‘РЎвЂљР В°РЎвЂљРЎРЉ РЎРѓРЎвЂљРЎР‚РЎС“Р С”РЎвЂљРЎС“РЎР‚РЎС“ ZIP-Р В°РЎР‚РЎвЂ¦Р С‘Р Р†Р В°");
+        .expect("Не удалось прочитать структуру ZIP-архива");
 
-    // Р ВР Р…Р С‘РЎвЂ Р С‘Р В°Р В»Р С‘Р В·Р С‘РЎР‚РЎС“Р ВµР С (Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р В° РЎв‚¬Р ВµР в„–Р Т‘Р ВµРЎР‚Р С•Р Р† Р С‘ РЎвЂљ.Р Т‘.)
+    // Инициализируем (загрузка шейдеров и т.д.)
     vg.init(&mut provider, &mut rl, &thread);
 
-    // Р ВР Р…Р С‘РЎвЂ Р С‘Р В°Р В»Р С‘Р В·Р С‘РЎР‚РЎС“Р ВµР С Р С‘Р ВµРЎР‚Р В°РЎР‚РЎвЂ¦Р С‘РЎР‹
+    // Инициализируем иерархию
     let mut hierarchy = Hierarchy::new();
 
-    // 2. Р вЂ”Р В°Р С–РЎР‚РЎС“Р В¶Р В°Р ВµР С РЎРѓРЎвЂ Р ВµР Р…РЎС“ Р С‘Р В· Р СР В°Р Р…Р С‘РЎвЂћР ВµРЎРѓРЎвЂљР В°
+    // 2. Загружаем сцену из манифеста
     let pack = PackLoader::load_pack(
         &mut vg, 
         &mut hierarchy, 
@@ -82,103 +83,94 @@ fn main() {
         &thread
     ).expect("Failed to load scene from manifest");
 
-    // 3. Р ВР В·Р Р†Р В»Р ВµР С”Р В°Р ВµР С Р С”Р В»РЎР‹РЎвЂЎР С‘ Р В±РЎС“РЎвЂћР ВµРЎР‚Р С•Р Р† Р Т‘Р В»РЎРЏ Р С‘РЎРѓР С—Р С•Р В»РЎРЉР В·Р С•Р Р†Р В°Р Р…Р С‘РЎРЏ Р Р† Р С–Р В»Р В°Р Р†Р Р…Р С•Р С РЎвЂ Р С‘Р С”Р В»Р Вµ
+    // 3. Извлекаем ключи буферов для использования в главном цикле
     vg.terminal.register_buffers(pack.buffers.clone());
     let main_buf = pack.buffers["main_buf"];
     let back_buf = pack.buffers["back_buf"];
     let drop_zone_buf = pack.buffers["drop_zone_buf"];
     let shader_demo_buf = pack.buffers["shader_demo_buf"];
 
-    // 4. Р СџР С•Р В»РЎС“РЎвЂЎР В°Р ВµР С РЎР‚Р В°Р В·Р СР ВµРЎР‚РЎвЂ№ РЎвЂљР В°Р в„–Р В»Р В° Р С‘Р В· Р С”Р С•РЎР‚Р Р…Р ВµР Р†Р С•Р С–Р С• Р В±РЎС“РЎвЂћР ВµРЎР‚Р В° Р Т‘Р В»РЎРЏ Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘ Р С•Р С”Р Р…Р В°
+    // 4. Получаем размеры тайла из корневого буфера для настройки окна
     let main_glyphset = vg.grids.get(main_buf).unwrap().glyphset();
     let (tile_w, tile_h) = vg.grids.assets.glyphset_size(main_glyphset).unwrap();
 
-    // Р С™Р С•РЎР‚РЎР‚Р ВµР С”РЎвЂљР С‘РЎР‚РЎС“Р ВµР С РЎР‚Р В°Р В·Р СР ВµРЎР‚ Р С•Р С”Р Р…Р В°
+    // Корректируем размер окна
     let window_w = buf_w * tile_w;
     let window_h = buf_h * tile_h;
     rl.set_window_size(window_w as i32, window_h as i32);
 
-    // Р вЂ™Р С•РЎРѓРЎРѓРЎвЂљР В°Р Р…Р В°Р Р†Р В»Р С‘Р Р†Р В°Р ВµР С Р Т‘Р С•РЎРѓРЎвЂљРЎС“Р С— Р С” РЎв‚¬Р ВµР в„–Р Т‘Р ВµРЎР‚РЎС“ Р Т‘Р В»РЎРЏ Р В°Р Р…Р С‘Р СР В°РЎвЂ Р С‘Р С‘ Р Р† РЎвЂ Р С‘Р С”Р В»Р Вµ
+    // Восстанавливаем доступ к шейдеру для анимации в цикле
     let chromatic_shader = vg.grids.assets.load_shader(&mut provider, &mut rl, &thread, "assets/chromatic.fs").expect("Failed to load chromatic shader");
 
     // Drop zone state
     let mut drop_zone = DropZone::new();
 
-    // Р вЂ™РЎвЂ№Р Р†Р С•Р Т‘Р С‘Р С РЎРѓР С•Р Т‘Р ВµРЎР‚Р В¶Р С‘Р СР С•Р Вµ РЎР‚Р ВµР ВµРЎРѓРЎвЂљРЎР‚Р В° Р Т‘Р В»РЎРЏ Р С•РЎвЂљР В»Р В°Р Т‘Р С”Р С‘
+    // Выводим содержимое реестра для отладки
     vg.grids.assets.debug_print_registry();
 
     let mut start_time: Instant;
     start_time = Instant::now();
     let current_time = start_time.elapsed().as_secs_f32();
 
-
-
-
-
-
-// Р ВР Р…Р С‘РЎвЂ Р С‘Р В°Р В»Р С‘Р В·Р С‘РЎР‚РЎС“Р ВµР С Р С—Р В°РЎР‚РЎРѓР ВµРЎР‚ VTP
-let mut vtp_parser = VtpParser::new();
+    // Инициализируем парсер VTP
+    let mut vtp_parser = VtpParser::new();
     // Terminal state moved to vg.terminal
 
-// Р С™Р В°Р Р…Р В°Р В» Р Т‘Р В»РЎРЏ Р С—Р ВµРЎР‚Р ВµР Т‘Р В°РЎвЂЎР С‘ РЎРѓРЎвЂ№РЎР‚РЎвЂ№РЎвЂ¦ Р В±Р В°Р в„–РЎвЂљ Р С‘Р В· РЎРѓР ВµРЎвЂљР С‘ Р Р† Р С–Р В»Р В°Р Р†Р Р…РЎвЂ№Р в„– РЎвЂ Р С‘Р С”Р В»
-let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    // Канал для передачи сырых байт из сети в главный цикл
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
 
-// Р В¤Р С•Р Р…Р С•Р Р†РЎвЂ№Р в„– Р С—Р С•РЎвЂљР С•Р С” TCP-РЎРѓР ВµРЎР‚Р Р†Р ВµРЎР‚Р В°
-thread::spawn(move || {
-    let listener = TcpListener::bind("127.0.0.1:8080").expect("Failed to bind TCP port 8080");
-    println!("VTP Server listening on 127.0.0.1:8080");
+    // Фоновый поток TCP-сервера
+    thread::spawn(move || {
+        let listener = TcpListener::bind("127.0.0.1:8080").expect("Failed to bind TCP port 8080");
+        println!("VTP Server listening on 127.0.0.1:8080");
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                println!("VTP Client connected!");
-                let mut buffer = [0u8; 4096];
-                loop {
-                    match stream.read(&mut buffer) {
-                        Ok(0) => {
-                            println!("VTP Client disconnected");
-                            break;
-                        }
-                        Ok(n) => {
-                            // Р С›РЎвЂљР С—РЎР‚Р В°Р Р†Р В»РЎРЏР ВµР С Р С—РЎР‚Р С•РЎвЂЎР С‘РЎвЂљР В°Р Р…Р Р…РЎвЂ№Р Вµ Р В±Р В°Р в„–РЎвЂљРЎвЂ№ Р Р† Р С–Р В»Р В°Р Р†Р Р…РЎвЂ№Р в„– Р С—Р С•РЎвЂљР С•Р С”
-                            if tx.send(buffer[..n].to_vec()).is_err() {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    println!("VTP Client connected!");
+                    let mut buffer = [0u8; 4096];
+                    loop {
+                        match stream.read(&mut buffer) {
+                            Ok(0) => {
+                                println!("VTP Client disconnected");
+                                break;
+                            }
+                            Ok(n) => {
+                                // Отправляем прочитанные байты в главный поток
+                                if tx.send(buffer[..n].to_vec()).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("TCP read error: {}", e);
                                 break;
                             }
                         }
-                        Err(e) => {
-                            eprintln!("TCP read error: {}", e);
-                            break;
-                        }
                     }
                 }
+                Err(e) => eprintln!("TCP connection failed: {}", e),
             }
-            Err(e) => eprintln!("TCP connection failed: {}", e),
         }
-    }
-});
-
-
-
+    });
 
     // ========================================================================
-    // Р вЂњР вЂєР С’Р вЂ™Р СњР В«Р в„ў Р В¦Р ВР С™Р вЂє
+    // ГЛАВНЫЙ ЦИКЛ
     // ========================================================================
 
-            // --- Rhai Initialization ---
+    // --- Rhai Initialization ---
     let mut script_engine = voidgrid::scripting::ScriptEngine::new();
     
-    // РђРІС‚Рѕ-Р·Р°РіСЂСѓР·РєР° РІСЃРµС… СЃРєСЂРёРїС‚РѕРІ РёР· РјР°РЅРёС„РµСЃС‚Р°
+    // Авто-загрузка всех скриптов из манифеста
     for (name, code) in &pack.scripts {
         if let Err(e) = script_engine.load_script(name, code) {
             eprintln!("Failed to load pack script '{}': {}", name, e);
         }
     }
 
-    // Р’РђР–РќРћ: Р’С‹Р·С‹РІР°РµРј run_init() С‚РѕР»СЊРєРѕ РџРћРЎР›Р• Р·Р°РіСЂСѓР·РєРё РІСЃРµС… СЃРєСЂРёРїС‚РѕРІ РёР· РїР°РєР°!
+    // ВАЖНО: Вызываем run_init() только ПОСЛЕ загрузки всех скриптов из пака!
     script_engine.run_init();
     // ---------------------------
-        let mut is_resized = false;
-
+    let mut is_resized = false;
 
     while !rl.window_should_close() {
 
@@ -222,7 +214,8 @@ thread::spawn(move || {
         // -----------------------------
         puffin::GlobalProfiler::lock().new_frame();
         puffin::profile_scope!("Main Loop");
-        // --- Р С›РЎвЂЎР С‘РЎРѓРЎвЂљР С”Р В° Р В±РЎС“РЎвЂћР ВµРЎР‚Р С•Р Р† ---
+        
+        // --- Очистка буферов ---
         if is_resized {
             vg.grids.clear_buffer(main_buf);
             is_resized = false;
@@ -231,17 +224,17 @@ thread::spawn(move || {
         vg.grids.clear_buffer(drop_zone_buf);
         vg.grids.clear_buffer(shader_demo_buf);
 
-        // --- Р С›Р В±РЎР‚Р В°Р В±Р С•РЎвЂљР С”Р В° window chrome ---
+        // --- Обработка window chrome ---
         if chrome.update(&mut rl) {
             break;
         }
 
-        // --- Р С›Р В±РЎР‚Р В°Р В±Р С•РЎвЂљР С”Р В° drag-n-drop ---
+        // --- Обработка drag-n-drop ---
         if let Some(filename) = drop_zone.update(&vg.events.frame_events) {
             println!("Dropped: {}", filename);
         }
 
-        // --- Р СџРЎР‚Р С•Р Р†Р ВµРЎР‚Р С”Р В° resize Р С‘ Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘Р Вµ Р В±РЎС“РЎвЂћР ВµРЎР‚Р В° ---
+        // --- Проверка resize и обновление буфера ---
         if let Some((new_w, new_h)) = chrome.check_resize(&rl) {
             is_resized = true;
 
@@ -254,13 +247,12 @@ thread::spawn(move || {
 
                 let _ = vg.grids.resize_buffer(main_buf, buf_w, buf_h);
                 let _ = vg.grids.resize_buffer(back_buf, buf_w, buf_h);
-
             }
         }
         let current_time = start_time.elapsed().as_secs_f32();
 
-        // Р С›Р В±РЎР‚Р В°Р В±Р В°РЎвЂљРЎвЂ№Р Р†Р В°Р ВµР С Р Р†РЎРѓР Вµ Р С—Р В°Р С”Р ВµРЎвЂљРЎвЂ№, Р С—РЎР‚Р С‘РЎв‚¬Р ВµР Т‘РЎв‚¬Р С‘Р Вµ Р С‘Р В· РЎРѓР ВµРЎвЂљР С‘ Р В·Р В° РЎРЊРЎвЂљР С•РЎвЂљ Р С”Р В°Р Т‘РЎР‚
-while let Ok(network_data) = rx.try_recv() {
+        // Обрабатываем все пакеты, пришедшие из сети за этот кадр
+        while let Ok(network_data) = rx.try_recv() {
             vtp_parser.push_bytes(&network_data);
             while let Some(cmd) = vtp_parser.next_command() {
                 let action = match cmd {
@@ -276,8 +268,9 @@ while let Ok(network_data) = rx.try_recv() {
                 vg.terminal.apply_action(&mut vg.grids, action);
             }
         }
-// --- Р РЋРЎвЂљРЎР‚Р С•Р С”Р В° РЎРѓРЎвЂљР В°РЎвЂљРЎС“РЎРѓР В° ---
-                // --- Execute Rhai Script Frame ---
+
+        // --- Строка статуса ---
+        // --- Execute Rhai Script Frame ---
         script_engine.sync_state(&vg.grids, &pack.buffers);
         script_engine.run_update(current_time, &vg.events.frame_events);
         
@@ -307,7 +300,6 @@ while let Ok(network_data) = rx.try_recv() {
             for x in 0..w {
                 for y in 0.._h {
                     let ch = rng.random_range(33..=90);
-                    // let alpha = rand::rng().random_range(0..=32);
 
                     let luma = (((cx - x as f32).powi(2) + (cy - y as f32).powi(2)).sqrt() * 0.25
                         - current_time * 3.0)
@@ -324,11 +316,9 @@ while let Ok(network_data) = rx.try_recv() {
                     );
                 }
             }
-
-
         }
 
-        // --- Р вЂРЎС“РЎвЂћР ВµРЎР‚ РЎРѓ РЎв‚¬Р ВµР в„–Р Т‘Р ВµРЎР‚Р С•Р С ---
+        // --- Буфер с шейдером ---
 
         let status_text = format!("VOIDGRID _ {:.2}", current_time);
 
@@ -338,7 +328,8 @@ while let Ok(network_data) = rx.try_recv() {
                 .at(4, 3)
                 .fg(Color::new(0, 255, 127, 255))
                 .write("TWELVE\nCATHODE\nTELEVISION TUBES\n")
-                .write(("FLICKERING\n", "inverted")) // Р ВРЎРѓР С—РЎР‚Р В°Р Р†Р В»Р ВµР Р…Р С•: РЎС“Р В±РЎР‚Р В°Р Р…РЎвЂ№ Р В»Р С‘РЎв‚¬Р Р…Р С‘Р Вµ РЎРѓР С”Р С•Р В±Р С”Р С‘, Р Р…Р С• Р В·Р Т‘Р ВµРЎРѓРЎРЉ Р С”Р С•РЎР‚РЎвЂљР ВµР В¶ Р Р…РЎС“Р В¶Р ВµР Р… Р Т‘Р В»РЎРЏ Printable
+                // Исправлено: убраны лишние скобки, но здесь кортеж нужен для Printable
+                .write(("FLICKERING\n", "inverted")) 
                 .write("NAKEDLY\nON ONE SIDE\nAND FOUR SPEAKERS\nHUMMING ON\nTHE OTHER...");
         } else {
             vg.grids
@@ -355,7 +346,7 @@ while let Ok(network_data) = rx.try_recv() {
             .color(Color::WHITE, Color::new(16, 16, 16, 255))
             .write(status_text);
 
-        // --- Drop zone Р В±РЎС“РЎвЂћР ВµРЎР‚ ---
+        // --- Drop zone буфер ---
         {
             let drop_text = if let Some(filename) = drop_zone.last_file() {
                 format!(" DROPPED: {} ", filename)
@@ -375,14 +366,14 @@ while let Ok(network_data) = rx.try_recv() {
             );
         }
 
-        // --- Р С›РЎвЂљРЎР‚Р С‘РЎРѓР С•Р Р†Р С”Р В° ---
+        // --- Отрисовка ---
         puffin::profile_scope!("Prepare Render");
-        // Р С’Р Р…Р С‘Р СР С‘РЎР‚РЎС“Р ВµР С РЎРѓР СР ВµРЎвЂ°Р ВµР Р…Р С‘Р Вµ chromatic aberration
-        let aberration = (vg.renderer.shader_time() * 3.0).sin() * 1.5 + 1.5; // Р С•РЎвЂљ 1 Р Т‘Р С• 5 Р С—Р С‘Р С”РЎРѓР ВµР В»Р ВµР в„–
+        // Анимируем смещение chromatic aberration
+        let aberration = (vg.renderer.shader_time() * 3.0).sin() * 1.5 + 1.5; // от 1 до 5 пикселей
         vg.grids.assets
             .set_shader_float(chromatic_shader, "offset", aberration);
 
-        // Р РЋР С•Р В±Р С‘РЎР‚Р В°Р ВµР С РЎРѓР С—Р С‘РЎРѓР С•Р С” РЎР‚Р ВµР Р…Р Т‘Р ВµРЎР‚Р С‘Р Р…Р С–Р В° Р С‘Р В· Р С‘Р ВµРЎР‚Р В°РЎР‚РЎвЂ¦Р С‘Р С‘
+        // Собираем список рендеринга из иерархии
         let render_list = hierarchy.collect_render_list(|b| {
             if let Some(buf) = vg.grids.get(b) {
                 if let Some((tw, th)) = vg.grids.assets.glyphset_size(buf.glyphset()) {
@@ -392,15 +383,15 @@ while let Ok(network_data) = rx.try_recv() {
             (0, 0, 1, 1)
         });
 
-        // Р вЂќР Р†РЎС“РЎвЂ¦Р С—РЎР‚Р С•РЎвЂ¦Р С•Р Т‘Р Р…РЎвЂ№Р в„– РЎР‚Р ВµР Р…Р Т‘Р ВµРЎР‚: РЎРѓР Р…Р В°РЎвЂЎР В°Р В»Р В° Р В±РЎС“РЎвЂћР ВµРЎР‚РЎвЂ№ РЎРѓ РЎв‚¬Р ВµР в„–Р Т‘Р ВµРЎР‚Р В°Р СР С‘ Р Р† Р С‘РЎвЂ¦ РЎвЂљР ВµР С”РЎРѓРЎвЂљРЎС“РЎР‚РЎвЂ№
+        // Двухпроходный рендер: сначала буферы с шейдерами в их текстуры
         vg.render_offscreen(&mut rl, &thread, &render_list);
 
-        // Р СџР С•РЎвЂљР С•Р С РЎР‚Р С‘РЎРѓРЎС“Р ВµР С Р Р†РЎРѓРЎвЂ Р Р…Р В° РЎРЊР С”РЎР‚Р В°Р Р…
+        // Потом рисуем всё на экран
         {
             let mut d = rl.begin_drawing(&thread);
             d.clear_background(Color::new(8, 8, 8, 255));
             puffin::profile_scope!("Offscreen Render");
-            // draw РЎР‚Р С‘РЎРѓРЎС“Р ВµРЎвЂљ Р Т‘Р ВµРЎР‚Р ВµР Р†Р С• + Р С—РЎР‚Р С‘Р СР ВµР Р…РЎРЏР ВµРЎвЂљ РЎв‚¬Р ВµР в„–Р Т‘Р ВµРЎР‚РЎвЂ№ Р С” Р В±РЎС“РЎвЂћР ВµРЎР‚Р В°Р С (РЎвЂЎР ВµРЎР‚Р ВµР В· РЎвЂћР В°РЎРѓР В°Р Т‘)
+            // draw рисует дерево + применяет шейдеры к буферам (через фасад)
             vg.draw(&mut d, &render_list);
 
             chrome.draw(&mut d);
@@ -408,16 +399,3 @@ while let Ok(network_data) = rx.try_recv() {
         }
     }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
