@@ -320,7 +320,7 @@ impl Renderer {
                 shader.apply_auto_uniforms(
                     (tex_w, tex_h),
                     self.current_time,
-                    (d.get_screen_width() as f32, d.get_screen_height() as f32),
+                    (tex_w, tex_h), // Передаем размер текстуры, так как uv привязаны к ней!
                 );
                 
                 let shader_ptr = &mut shader.shader as *mut Shader;

@@ -11,7 +11,6 @@ use raylib::prelude::*;
 
 use voidgrid::input::{DropZone, WindowChrome};
 use voidgrid::text_ops::TextOps;
-
 use voidgrid::VoidGrid;
 use voidgrid::hierarchy::Hierarchy;
 use voidgrid::pack_loader::PackLoader;
@@ -19,7 +18,7 @@ use voidgrid_vtp::{VtpParser, VtpCommand};
 use voidgrid::terminal::Action;
 use voidgrid::events::{Event, MouseButton};
 use voidgrid::types::Character;
-use voidgrid::resource_pack::ResourceProvider;
+// use voidgrid::resource_pack::ResourceProvider;
 
 fn main() {
     puffin::set_scopes_on(true);
@@ -61,11 +60,17 @@ fn main() {
     let mut vg = VoidGrid::new();
 
     // Создаем провайдер ресурсов
-    let zip_file = std::fs::File::open("crtdemo.vpk")
-        .expect("Не удалось найти файл crtdemo.vpk");
+  
 
-    let mut provider = voidgrid_resource_packs::ZipProvider::new(zip_file)
-        .expect("Не удалось прочитать структуру ZIP-архива");
+
+    // let zip_file = std::fs::File::open("crtdemo.vpk")
+    //     .expect("Не удалось найти файл crtdemo.vpk");
+
+    // let mut provider = voidgrid_resource_packs::ZipProvider::new(zip_file)
+    //     .expect("Не удалось прочитать структуру ZIP-архива");
+
+      let mut provider = voidgrid_resource_packs::DirProvider::new("res");
+
 
     // Инициализируем (загрузка шейдеров и т.д.)
     vg.init(&mut provider, &mut rl, &thread);
@@ -245,8 +250,14 @@ fn main() {
                 buf_w = new_buf_w.max(1);
                 buf_h = new_buf_h.max(1);
 
+                // 1. Обновляем логическую сетку
                 let _ = vg.grids.resize_buffer(main_buf, buf_w, buf_h);
                 let _ = vg.grids.resize_buffer(back_buf, buf_w, buf_h);
+
+                // 2. ВАЖНО: Обновляем физические текстуры (RenderTexture) для шейдеров!
+                // Если этого не сделать, старая текстура растянется на новый экран.
+                vg.renderer.update_buffer_shader_texture(&mut rl, &thread, &vg.grids, main_buf);
+                vg.renderer.update_buffer_shader_texture(&mut rl, &thread, &vg.grids, back_buf);
             }
         }
         let current_time = start_time.elapsed().as_secs_f32();
@@ -287,35 +298,42 @@ fn main() {
                 .write(("[F11]", "inverted"))
                 .write(" FULLSCREEN ");
 
-            let ch = rand::rng().random_range(33..=90);
-            let alpha = rand::rng().random_range(0..=32);
 
-            let cx = (w as f32) * 0.5;
-            let cy = (_h as f32) / 2.0;
 
-            let seed: u64 = 42;
 
-            let mut rng = StdRng::seed_from_u64(seed);
+            // let ch = rand::rng().random_range(33..=90);
+            // let alpha = rand::rng().random_range(0..=32);
 
-            for x in 0..w {
-                for y in 0.._h {
-                    let ch = rng.random_range(33..=90);
+            // let cx = (w as f32) * 0.5;
+            // let cy = (_h as f32) / 2.0;
 
-                    let luma = (((cx - x as f32).powi(2) + (cy - y as f32).powi(2)).sqrt() * 0.25
-                        - current_time * 3.0)
-                        .sin()
-                        * 16.0
-                        + 16.0;
-                    let alpha = luma;
+            // let seed: u64 = 42;
 
-                    vg.grids.set_char(
-                        back_buf,
-                        x,
-                        y,
-                        Character::new(ch, 0, Color::new(0, 255, 0, alpha as u8), Color::BLANK),
-                    );
-                }
-            }
+            // let mut rng = StdRng::seed_from_u64(seed);
+
+            // for x in 0..w {
+            //     for y in 0.._h {
+            //         let ch = rng.random_range(33..=90);
+
+            //         let luma = (((cx - x as f32).powi(2) + (cy - y as f32).powi(2)).sqrt() * 0.25
+            //             - current_time * 3.0)
+            //             .sin()
+            //             * 16.0
+            //             + 16.0;
+            //         let alpha = luma;
+
+            //         vg.grids.set_char(
+            //             back_buf,
+            //             x,
+            //             y,
+            //             Character::new(ch, 0, Color::new(0, 255, 0, alpha as u8), Color::BLANK),
+            //         );
+            //     }
+            // }
+
+
+
+
         }
 
         // --- Буфер с шейдером ---
@@ -347,6 +365,8 @@ fn main() {
             .write(status_text);
 
         // --- Drop zone буфер ---
+
+
         {
             let drop_text = if let Some(filename) = drop_zone.last_file() {
                 format!(" DROPPED: {} ", filename)
@@ -366,12 +386,12 @@ fn main() {
             );
         }
 
-        // --- Отрисовка ---
+        
         puffin::profile_scope!("Prepare Render");
-        // Анимируем смещение chromatic aberration
+
+        // Update shader params
         let aberration = (vg.renderer.shader_time() * 3.0).sin() * 1.5 + 1.5; // от 1 до 5 пикселей
-        vg.grids.assets
-            .set_shader_float(chromatic_shader, "offset", aberration);
+        vg.grids.assets.set_shader_float(chromatic_shader, "offset", aberration);
 
         // Собираем список рендеринга из иерархии
         let render_list = hierarchy.collect_render_list(|b| {
@@ -383,17 +403,15 @@ fn main() {
             (0, 0, 1, 1)
         });
 
-        // Двухпроходный рендер: сначала буферы с шейдерами в их текстуры
+        // PRE-DRAW (image buffers for shaders, etc)
         vg.render_offscreen(&mut rl, &thread, &render_list);
 
-        // Потом рисуем всё на экран
+        // DRAW
         {
             let mut d = rl.begin_drawing(&thread);
             d.clear_background(Color::new(8, 8, 8, 255));
             puffin::profile_scope!("Offscreen Render");
-            // draw рисует дерево + применяет шейдеры к буферам (через фасад)
-            vg.draw(&mut d, &render_list);
-
+            vg.draw(&mut d, &render_list); // draw рисует дерево + применяет шейдеры к буферам (через фасад)
             chrome.draw(&mut d);
             // d.draw_fps(10, 10);
         }
