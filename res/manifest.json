@@ -11,7 +11,8 @@
     },
     "shaders": {
       "chromatic": "assets/chromatic.fs",
-	"scanline": "assets/scanline.fs"
+	"scanline": "assets/scanline.fs",
+"bloom": "assets/glow.fs"
     }
   },
   "glyphsets": {
@@ -31,7 +32,7 @@
         "glyphset": "composite",
         "z_index": 1,
         "dynamic": false,
-	"shader": "scanline"
+	"shaders": ["scanline", "bloom"]
       },
       {
         "id": "back_buf",
@@ -70,8 +71,8 @@
         "local_x": 4,
         "local_y": 1,
         "shaders": [
-           "chromatic",
-           "scanline"
+           "scanline","chromatic"
+           
         ],
         "shader_padding": 4
       }
