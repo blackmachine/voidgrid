@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+﻿use std::collections::HashMap;
 use std::time::Instant;
 
 use raylib::prelude::*;
@@ -22,14 +22,10 @@ struct Batch {
     texture_id: u32,
     blend: Blend,
     mesh: Mesh,
-    
-    // CPU buffers for rebuilding (capacity reuse)
-    vertices: Vec<f32>,   // x, y, z
-    texcoords: Vec<f32>,  // u, v
-    colors: Vec<u8>,      // r, g, b, a
-    
-    // Track GPU buffer capacity to decide between Update and Re-upload
-    gpu_capacity: usize, // in vertices
+    vertices: Vec<f32>,
+    texcoords: Vec<f32>,
+    colors: Vec<u8>,
+    gpu_capacity: usize,
 }
 
 impl Batch {
@@ -48,7 +44,6 @@ impl Batch {
 
 impl Drop for Batch {
     fn drop(&mut self) {
-        // Ensure we don't double-free CPU memory, as we own the Vecs
         self.mesh.vertices = std::ptr::null_mut();
         self.mesh.texcoords = std::ptr::null_mut();
         self.mesh.colors = std::ptr::null_mut();
@@ -56,16 +51,16 @@ impl Drop for Batch {
     }
 }
 
-/// Данные буферного шейдера (RenderTexture + настройки)
+/// Данные буферного шейдера (цепочка шейдеров + ping-pong текстуры)
 pub struct BufferShaderData {
-    pub shader: ShaderKey,
+    pub shaders: Vec<ShaderKey>,
     pub padding: u32,
-    pub render_texture: RenderTexture2D,
+    pub textures: [RenderTexture2D; 2],
+    pub final_texture_idx: usize,
 }
 
 /// Система рендеринга
 pub struct Renderer {
-    // Mask shader (internal)
     mask_shader: Option<Shader>,
     loc_mask_tex: i32,
     loc_mask_src_rect: i32,
@@ -74,20 +69,10 @@ pub struct Renderer {
     loc_glyph_tex_size: i32,
     loc_use_mask: i32,
     loc_bg_color: i32,
-
-    // Post-process
     post_process_texture: Option<RenderTexture2D>,
-
-    // Buffer shaders
     buffer_shaders: HashMap<BufferKey, BufferShaderData>,
-    
-    // Geometry Cache
     buffer_batches: HashMap<BufferKey, Vec<Batch>>,
-    
-    // Shared resources
     default_material: Option<Material>,
-
-    // Time tracking
     start_time: Instant,
     current_time: f32,
 }
@@ -112,7 +97,6 @@ impl Renderer {
         }
     }
 
-    /// Загрузить шейдер маски (internal)
     pub fn load_mask_shader(
         &mut self,
         provider: &mut dyn ResourceProvider,
@@ -135,7 +119,7 @@ impl Renderer {
         Ok(())
     }
 
-    /// Установить шейдер для буфера с padding
+    /// Добавить шейдер в цепочку буфера
     pub fn attach_shader(
         &mut self,
         rl: &mut RaylibHandle,
@@ -145,7 +129,11 @@ impl Renderer {
         shader: ShaderKey,
         padding: u32,
     ) {
-        // Вычисляем размер текстуры
+        if let Some(data) = self.buffer_shaders.get_mut(&buffer) {
+            data.shaders.push(shader);
+            return;
+        }
+
         let (width, height) = if let Some(buf) = grids.buffers.get(buffer) {
             if let Some(gs) = grids.assets.glyphsets.get(buf.glyphset()) {
                 let w = buf.w * gs.tile_w + padding * 2;
@@ -158,24 +146,23 @@ impl Renderer {
             return;
         };
         
-        // Создаём RenderTexture
-        if let Ok(rt) = rl.load_render_texture(thread, width as u32, height as u32) {
-            // Включаем билинейную фильтрацию для плавных эффектов шейдера
+        if let (Ok(rt0), Ok(rt1)) = (
+            rl.load_render_texture(thread, width as u32, height as u32),
+            rl.load_render_texture(thread, width as u32, height as u32)
+        ) {
             unsafe {
-                raylib::ffi::SetTextureFilter(
-                    *rt.texture().as_ref(),
-                    raylib::ffi::TextureFilter::TEXTURE_FILTER_BILINEAR as i32,
-                );
+                raylib::ffi::SetTextureFilter(*rt0.texture().as_ref(), raylib::ffi::TextureFilter::TEXTURE_FILTER_BILINEAR as i32);
+                raylib::ffi::SetTextureFilter(*rt1.texture().as_ref(), raylib::ffi::TextureFilter::TEXTURE_FILTER_BILINEAR as i32);
             }
             self.buffer_shaders.insert(buffer, BufferShaderData {
-                shader,
+                shaders: vec![shader],
                 padding,
-                render_texture: rt,
+                textures: [rt0, rt1],
+                final_texture_idx: 0,
             });
         }
     }
 
-    /// Обновить RenderTexture буфера (при resize)
     pub fn update_buffer_shader_texture(
         &mut self,
         rl: &mut RaylibHandle,
@@ -183,25 +170,27 @@ impl Renderer {
         grids: &Grids,
         buffer: BufferKey,
     ) {
-        if let Some(data) = self.buffer_shaders.get(&buffer) {
-            let shader = data.shader;
+        if let Some(data) = self.buffer_shaders.remove(&buffer) {
+            let shaders = data.shaders.clone();
             let padding = data.padding;
-            // Пересоздаём текстуру с новым размером
-            self.attach_shader(rl, thread, grids, buffer, shader, padding);
+            
+            if let Some(first) = shaders.first() {
+                self.attach_shader(rl, thread, grids, buffer, *first, padding);
+                if let Some(new_data) = self.buffer_shaders.get_mut(&buffer) {
+                    new_data.shaders = shaders;
+                }
+            }
         }
     }
 
-    /// Убрать шейдер с буфера
     pub fn clear_buffer_shader(&mut self, buffer: BufferKey) {
         self.buffer_shaders.remove(&buffer);
     }
 
-    /// Получить текущее время шейдеров
     pub fn shader_time(&self) -> f32 {
         self.current_time
     }
 
-    /// Проход 1: рендерит все буферы с шейдерами в их текстуры
     pub fn render_offscreen(
         &mut self,
         rl: &mut RaylibHandle,
@@ -209,30 +198,76 @@ impl Renderer {
         grids: &mut Grids,
         render_list: &[RenderItem],
     ) {
-        // Обновляем время
         self.current_time = self.start_time.elapsed().as_secs_f32();
         
-        // Проходим по плоскому списку и рендерим буферы с шейдерами в их текстуры
+        let mut processed = Vec::new();
+        
         for item in render_list {
             let buffer_key = item.buffer;
             
-            // Если у буфера есть шейдер, рендерим его содержимое в текстуру
-            if let Some(shader_data) = self.buffer_shaders.get_mut(&buffer_key) {
-                let padding = shader_data.padding as i32;
-                // Получаем указатель на текстуру (через raw pointer чтобы обойти borrow checker)
-                let rt_ptr = &mut shader_data.render_texture as *mut RenderTexture2D;
+            if processed.contains(&buffer_key) {
+                continue;
+            }
+            processed.push(buffer_key);
             
-                let rt = unsafe { &mut *rt_ptr };
-                let mut texture_d = rl.begin_texture_mode(thread, rt);
-                texture_d.clear_background(Color::BLANK);
-                // Рисуем буфер в текстуру
-                // Важно: рисуем в (padding, padding), так как это локальная отрисовка в текстуру
-                self.draw_single_buffer(&mut texture_d, grids, buffer_key, padding, padding, 1.0, true);
+            // ВРЕМЕННО извлекаем данные. Компилятор счастлив, self свободен!
+            if let Some(mut shader_data) = self.buffer_shaders.remove(&buffer_key) {
+                let padding = shader_data.padding as i32;
+                let shaders = shader_data.shaders.clone();
+            
+                // Pass 0: Отрисовка оригинального буфера в Текстуру 0
+                {
+                    let mut texture_d = rl.begin_texture_mode(thread, &mut shader_data.textures[0]);
+                    texture_d.clear_background(Color::BLANK);
+                    self.draw_single_buffer(&mut texture_d, grids, buffer_key, padding, padding, 1.0, true);
+                }
+
+                let mut read_idx = 0;
+                let mut write_idx = 1;
+
+                // Ping-Pong по цепочке шейдеров
+                for shader_key in shaders {
+                    let tex_w = shader_data.textures[0].texture().width as f32;
+                    let tex_h = shader_data.textures[0].texture().height as f32;
+
+                    if let Some(shader_obj) = grids.assets.shaders.get_mut(shader_key) {
+                        shader_obj.apply_uniforms();
+                        shader_obj.apply_auto_uniforms(
+                            (tex_w, tex_h),
+                            self.current_time,
+                            (tex_w, tex_h),
+                        );
+                        
+                        let shader_ptr = &mut shader_obj.shader as *mut Shader;
+                        let write_rt_ptr = &mut shader_data.textures[write_idx] as *mut RenderTexture2D;
+                        let write_rt = unsafe { &mut *write_rt_ptr };
+                        let read_tex_ptr = &shader_data.textures[read_idx] as *const RenderTexture2D;
+                        let read_tex = unsafe { &*read_tex_ptr };
+
+                        let mut texture_d = rl.begin_texture_mode(thread, write_rt);
+                        texture_d.clear_background(Color::BLANK);
+                        
+                        unsafe {
+                            let mut shader_mode = texture_d.begin_shader_mode(&mut *shader_ptr);
+                            shader_mode.draw_texture_rec(
+                                read_tex.texture(),
+                                Rectangle::new(0.0, tex_h, tex_w, -tex_h),
+                                Vector2::new(0.0, 0.0),
+                                Color::WHITE,
+                            );
+                        }
+                    }
+                    std::mem::swap(&mut read_idx, &mut write_idx);
+                }
+                
+                shader_data.final_texture_idx = read_idx;
+                
+                // ВОЗВРАЩАЕМ данные на место
+                self.buffer_shaders.insert(buffer_key, shader_data);
             }
         }
     }
 
-    /// Проход 2: рисует дерево буферов с применением шейдеров
     pub fn draw(
         &mut self,
         d: &mut RaylibDrawHandle,
@@ -241,23 +276,14 @@ impl Renderer {
     ) {
         for item in render_list {
             if self.buffer_shaders.contains_key(&item.buffer) {
-                // Если есть шейдер, рисуем результат из текстуры (Pass 1)
                 self.draw_buffer_with_shader(d, grids, item.buffer, item.screen_x, item.screen_y);
             } else {
-                // Иначе рисуем буфер напрямую
                 self.draw_single_buffer(d, grids, item.buffer, item.screen_x, item.screen_y, item.opacity, false);
             }
         }
     }
 
-    /// Подготовить post-process текстуру
-    pub fn prepare_post_process(
-        &mut self,
-        rl: &mut RaylibHandle,
-        thread: &RaylibThread,
-        width: u32,
-        height: u32,
-    ) {
+    pub fn prepare_post_process(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, width: u32, height: u32) {
         let need_recreate = self.post_process_texture.as_ref()
             .map(|t| t.texture().width != width as i32 || t.texture().height != height as i32)
             .unwrap_or(true);
@@ -269,7 +295,6 @@ impl Renderer {
         }
     }
 
-    /// Завершить post-process
     pub fn end_post_process(&mut self, d: &mut RaylibDrawHandle, grids: &mut Grids) {
         if let (Some(shader_key), Some(ref rt)) = (grids.post_process_shader, &self.post_process_texture) {
             self.current_time = self.start_time.elapsed().as_secs_f32();
@@ -281,11 +306,7 @@ impl Renderer {
             
             if let Some(shader_data) = grids.assets.shaders.get_mut(shader_key) {
                 shader_data.apply_uniforms();
-                shader_data.apply_auto_uniforms(
-                    (tex_w, tex_h),
-                    self.current_time,
-                    (screen_w, screen_h),
-                );
+                shader_data.apply_auto_uniforms((tex_w, tex_h), self.current_time, (screen_w, screen_h));
                 
                 {
                     let mut shader_mode = d.begin_shader_mode(&mut shader_data.shader);
@@ -304,40 +325,21 @@ impl Renderer {
         self.post_process_texture.as_mut()
     }
 
-    // --- Внутренние методы ---
-
-    fn draw_buffer_with_shader(&mut self, d: &mut RaylibDrawHandle, grids: &mut Grids, buffer: BufferKey, screen_x: i32, screen_y: i32) {
-        self.current_time = self.start_time.elapsed().as_secs_f32();
-        
+    fn draw_buffer_with_shader(&mut self, d: &mut RaylibDrawHandle, _grids: &mut Grids, buffer: BufferKey, screen_x: i32, screen_y: i32) {
         if let Some(shader_data) = self.buffer_shaders.get(&buffer) {
-            let shader_key = shader_data.shader;
             let padding = shader_data.padding as i32;
-            let tex_w = shader_data.render_texture.texture().width as f32;
-            let tex_h = shader_data.render_texture.texture().height as f32;
+            let final_idx = shader_data.final_texture_idx;
+            let tex_w = shader_data.textures[final_idx].texture().width as f32;
+            let tex_h = shader_data.textures[final_idx].texture().height as f32;
             
-            if let Some(shader) = grids.assets.shaders.get_mut(shader_key) {
-                shader.apply_uniforms();
-                shader.apply_auto_uniforms(
-                    (tex_w, tex_h),
-                    self.current_time,
-                    (tex_w, tex_h), // Передаем размер текстуры, так как uv привязаны к ней!
-                );
-                
-                let shader_ptr = &mut shader.shader as *mut Shader;
-                
-                if let Some(rt_data) = self.buffer_shaders.get(&buffer) {
-                    let rt = &rt_data.render_texture;
-                    unsafe {
-                        let mut shader_mode = d.begin_shader_mode(&mut *shader_ptr);
-                        shader_mode.draw_texture_rec(
-                            rt.texture(),
-                            Rectangle::new(0.0, tex_h, tex_w, -tex_h),
-                            Vector2::new((screen_x - padding) as f32, (screen_y - padding) as f32),
-                            Color::WHITE,
-                        );
-                    }
-                }
-            }
+            let rt = &shader_data.textures[final_idx];
+            
+            d.draw_texture_rec(
+                rt.texture(),
+                Rectangle::new(0.0, tex_h, tex_w, -tex_h),
+                Vector2::new((screen_x - padding) as f32, (screen_y - padding) as f32),
+                Color::WHITE,
+            );
         }
     }
 
@@ -351,7 +353,6 @@ impl Renderer {
         opacity: f32,
         force_rebuild: bool,
     ) {
-        // 1. Check buffer state
         let (is_dirty, glyphset_key, buf_w, buf_h, is_dynamic) = if let Some(buf) = grids.buffers.get(buffer_key) {
             if !buf.visible { return; }
             (buf.dirty || force_rebuild, buf.glyphset(), buf.w, buf.h, buf.dynamic)
@@ -359,19 +360,13 @@ impl Renderer {
             return;
         };
 
-        // --- PATH A: IMMEDIATE MODE (Dynamic) ---
         if is_dynamic {
             self.draw_immediate(grids, buffer_key, glyphset_key, buf_w, buf_h, opacity, screen_x, screen_y);
             return;
         }
 
-        // --- PATH B: CACHED MESH (Static) ---
-        
-        // Ensure default material is loaded (lazy init)
         if self.default_material.is_none() {
-            unsafe {
-                self.default_material = Some(LoadMaterialDefault());
-            }
+            unsafe { self.default_material = Some(LoadMaterialDefault()); }
         }
 
         if is_dirty || !self.buffer_batches.contains_key(&buffer_key) {
@@ -381,28 +376,19 @@ impl Renderer {
             }
         }
 
-        // 2. Draw from cache
         if let Some(batches) = self.buffer_batches.get(&buffer_key) {
-            let effective_opacity = opacity; // We assume buffer.opacity is handled by caller or baked? 
-            // Actually caller passes: parent_opacity * buffer.opacity.
-            // We apply this to the cached colors.
+            let effective_opacity = opacity;
 
             if let Some(material) = &mut self.default_material {
-                // Set material color for opacity
                 let opacity_col = Color::WHITE.alpha(effective_opacity);
                 
-                unsafe {
-                    (*material.maps).color = opacity_col.into();
-                }
+                unsafe { (*material.maps).color = opacity_col.into(); }
 
-                // Create transform matrix
                 let transform = Matrix::translate(screen_x as f32, screen_y as f32, 0.0).into();
 
                 for batch in batches {
                     if batch.mesh.vertexCount > 0 {
-                        // Set texture
                         unsafe { (*material.maps).texture.id = batch.texture_id; }
-                        
                         unsafe {
                             BeginBlendMode(batch.blend.to_ffi());
                             DrawMesh(batch.mesh, *material, transform);
@@ -425,20 +411,13 @@ impl Renderer {
         screen_x: i32,
         screen_y: i32,
     ) {
-        let buffer = match grids.buffers.get(buffer_key) {
-            Some(b) => b,
-            None => return,
-        };
-        let glyphset = match grids.assets.glyphsets.get(glyphset_key) {
-            Some(g) => g,
-            None => return,
-        };
+        let buffer = match grids.buffers.get(buffer_key) { Some(b) => b, None => return, };
+        let glyphset = match grids.assets.glyphsets.get(glyphset_key) { Some(g) => g, None => return, };
         
         let tile_w = glyphset.tile_w as f32;
         let tile_h = glyphset.tile_h as f32;
         let effective_opacity = opacity * buffer.opacity;
 
-        // --- PASS 1: BACKGROUNDS ---
         unsafe {
             rlBegin(RL_QUADS as i32);
             rlSetTexture(rlGetTextureIdDefault());
@@ -464,7 +443,6 @@ impl Renderer {
             rlEnd();
         }
 
-        // --- PASS 2: FOREGROUNDS ---
         let mut current_tex = 0;
         let mut current_blend = Blend::Alpha;
         let mut batch_active = false;
@@ -536,29 +514,18 @@ impl Renderer {
         w: u32,
         h: u32,
     ) {
-        let buffer = match grids.buffers.get(buffer_key) {
-            Some(b) => b,
-            None => return,
-        };
-        
-        let glyphset = match grids.assets.glyphsets.get(glyphset_key) {
-            Some(g) => g,
-            None => return,
-        };
+        let buffer = match grids.buffers.get(buffer_key) { Some(b) => b, None => return, };
+        let glyphset = match grids.assets.glyphsets.get(glyphset_key) { Some(g) => g, None => return, };
         
         let tile_w = glyphset.tile_w as f32;
         let tile_h = glyphset.tile_h as f32;
 
-        // Get or create batch list for this buffer
         let batches = self.buffer_batches.entry(buffer_key).or_default();
         let mut batch_idx = 0;
         
-        // --- PASS 1: BACKGROUNDS ---
-        // Ensure we have a batch for backgrounds
         if batch_idx >= batches.len() { batches.push(Batch::new()); }
         let bg_batch = &mut batches[batch_idx];
         
-        // Reset batch for reuse
         bg_batch.texture_id = unsafe { rlGetTextureIdDefault() };
         bg_batch.blend = Blend::Alpha;
         bg_batch.vertices.clear();
@@ -572,44 +539,31 @@ impl Renderer {
                         let dst_x = x as f32 * tile_w;
                         let dst_y = y as f32 * tile_h;
                         
-                        // Triangle 1 (TL, BL, BR)
                         bg_batch.vertices.extend_from_slice(&[dst_x, dst_y, 0.0]);
                         bg_batch.vertices.extend_from_slice(&[dst_x, dst_y + tile_h, 0.0]);
                         bg_batch.vertices.extend_from_slice(&[dst_x + tile_w, dst_y + tile_h, 0.0]);
                         
-                        // Triangle 2 (BR, TR, TL)
                         bg_batch.vertices.extend_from_slice(&[dst_x + tile_w, dst_y + tile_h, 0.0]);
                         bg_batch.vertices.extend_from_slice(&[dst_x + tile_w, dst_y, 0.0]);
                         bg_batch.vertices.extend_from_slice(&[dst_x, dst_y, 0.0]);
                         
-                        // 6 UVs (center of white pixel)
                         for _ in 0..6 { bg_batch.texcoords.extend_from_slice(&[0.0, 0.0]); }
-                        
-                        // 6 Colors
                         for _ in 0..6 { bg_batch.colors.extend_from_slice(&[ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, ch.bcolor.a]); }
                     }
                 }
             }
         }
         
-        if !bg_batch.vertices.is_empty() {
-            batch_idx += 1;
-        }
+        if !bg_batch.vertices.is_empty() { batch_idx += 1; }
 
-        // --- PASS 2: FOREGROUNDS ---
         let mut current_tex = 0;
         let mut current_blend = Blend::Alpha;
-        
-        // Helper to get current foreground batch
-        // We can't use a closure easily due to borrow checker with `batches` and `batch_idx`
-        // So we manage index manually.
 
         for y in 0..h {
             for x in 0..w {
                 if let Some(ch) = buffer.get_char_ref(x, y) {
                     if ch.fcolor.a == 0 { continue; }
 
-                    // Resolve global_id and Atlas
                     let global_id = glyphset.luts.get(ch.variant_id as usize)
                         .and_then(|lut: &Vec<u32>| lut.get(ch.code as usize))
                         .copied()
@@ -620,17 +574,12 @@ impl Renderer {
                     let (src, _, _) = atlas.get_glyph_source(physical_glyph);
                     let tex_id = atlas.texture.id;
                     
-                    // State change check
                     if tex_id != current_tex || ch.fg_blend != current_blend {
-                        // If we were building a batch and it has data, move to next
                         if batch_idx < batches.len() && !batches[batch_idx].vertices.is_empty() {
                             batch_idx += 1;
                         }
-                        
-                        // Ensure batch exists
                         if batch_idx >= batches.len() { batches.push(Batch::new()); }
                         
-                        // Initialize new batch state
                         let batch = &mut batches[batch_idx];
                         batch.texture_id = tex_id;
                         batch.blend = ch.fg_blend;
@@ -643,12 +592,9 @@ impl Renderer {
                     }
                     
                     let batch = &mut batches[batch_idx];
-                    
-                    // Calculate Vertices & UVs
                     let dst_x = x as f32 * tile_w;
                     let dst_y = y as f32 * tile_h;
                     
-                    // UVs
                     let (tex_w, tex_h) = atlas.texture_size();
                     let mut u_min = src.x / tex_w;
                     let mut v_min = src.y / tex_h;
@@ -658,14 +604,11 @@ impl Renderer {
                     if ch.transform.flip_h { std::mem::swap(&mut u_min, &mut u_max); }
                     if ch.transform.flip_v { std::mem::swap(&mut v_min, &mut v_max); }
                     
-                    // Vertices (Local to tile)
-                    // TL, BL, BR, TR
                     let mut v_tl = (0.0, 0.0);
                     let mut v_bl = (0.0, tile_h);
                     let mut v_br = (tile_w, tile_h);
                     let mut v_tr = (tile_w, 0.0);
                     
-                    // Rotation (around center)
                     if ch.transform.rotation != Rotation::None {
                         let cx = tile_w * 0.5;
                         let cy = tile_h * 0.5;
@@ -676,10 +619,7 @@ impl Renderer {
                         let rotate = |(vx, vy): (f32, f32)| -> (f32, f32) {
                             let dx = vx - cx;
                             let dy = vy - cy;
-                            (
-                                cx + dx * cos_r - dy * sin_r,
-                                cy + dx * sin_r + dy * cos_r
-                            )
+                            (cx + dx * cos_r - dy * sin_r, cy + dx * sin_r + dy * cos_r)
                         };
                         
                         v_tl = rotate(v_tl);
@@ -688,26 +628,20 @@ impl Renderer {
                         v_tr = rotate(v_tr);
                     }
                     
-                    // 6 Colors
                     for _ in 0..6 {
                         batch.colors.extend_from_slice(&[ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, ch.fcolor.a]);
                     }
                     
-                    // Tri 1 UVs (TL, BL, BR)
                     batch.texcoords.extend_from_slice(&[u_min, v_min]);
                     batch.texcoords.extend_from_slice(&[u_min, v_max]);
                     batch.texcoords.extend_from_slice(&[u_max, v_max]);
-                    // Tri 2 UVs (BR, TR, TL)
                     batch.texcoords.extend_from_slice(&[u_max, v_max]);
                     batch.texcoords.extend_from_slice(&[u_max, v_min]);
                     batch.texcoords.extend_from_slice(&[u_min, v_min]);
                     
-                    // Tri 1 Vertices (TL, BL, BR)
                     batch.vertices.extend_from_slice(&[dst_x + v_tl.0, dst_y + v_tl.1, 0.0]);
                     batch.vertices.extend_from_slice(&[dst_x + v_bl.0, dst_y + v_bl.1, 0.0]);
                     batch.vertices.extend_from_slice(&[dst_x + v_br.0, dst_y + v_br.1, 0.0]);
-                    
-                    // Tri 2 Vertices (BR, TR, TL)
                     batch.vertices.extend_from_slice(&[dst_x + v_br.0, dst_y + v_br.1, 0.0]);
                     batch.vertices.extend_from_slice(&[dst_x + v_tr.0, dst_y + v_tr.1, 0.0]);
                     batch.vertices.extend_from_slice(&[dst_x + v_tl.0, dst_y + v_tl.1, 0.0]);
@@ -715,44 +649,36 @@ impl Renderer {
             }
         }
         
-        // Finalize last batch index
         if batch_idx < batches.len() && !batches[batch_idx].vertices.is_empty() {
             batch_idx += 1;
         }
         
-        // Remove unused batches (if buffer content shrank)
         batches.truncate(batch_idx);
         
-        // Upload to GPU
         for batch in batches.iter_mut() {
             let vertex_count = batch.vertices.len() / 3;
             batch.mesh.vertexCount = vertex_count as i32;
-            batch.mesh.triangleCount = (vertex_count / 3) as i32; // 3 vertices per tri
+            batch.mesh.triangleCount = (vertex_count / 3) as i32;
             
             if vertex_count > batch.gpu_capacity {
-                // Reallocate
                 unsafe {
-                    // Ensure pointers are null before Unload so it doesn't free Vec memory
                     batch.mesh.vertices = std::ptr::null_mut();
                     batch.mesh.texcoords = std::ptr::null_mut();
                     batch.mesh.colors = std::ptr::null_mut();
 
-                    UnloadMesh(batch.mesh); // Free old VBOs
+                    UnloadMesh(batch.mesh);
                     
-                    // Reset IDs because they are now invalid/freed
                     batch.mesh.vaoId = 0;
                     batch.mesh.vboId = std::ptr::null_mut();
 
-                    // Assign pointers for UploadMesh
                     batch.mesh.vertices = batch.vertices.as_mut_ptr();
                     batch.mesh.texcoords = batch.texcoords.as_mut_ptr();
                     batch.mesh.colors = batch.colors.as_mut_ptr();
 
-                    UploadMesh(&mut batch.mesh, true); // Allocate new VBOs (dynamic)
+                    UploadMesh(&mut batch.mesh, true);
                 }
                 batch.gpu_capacity = vertex_count;
             } else {
-                // Update existing
                 unsafe {
                     UpdateMeshBuffer(batch.mesh, 0, batch.vertices.as_ptr() as *const _, (batch.vertices.len() * 4) as i32, 0);
                     UpdateMeshBuffer(batch.mesh, 1, batch.texcoords.as_ptr() as *const _, (batch.texcoords.len() * 4) as i32, 0);
@@ -760,7 +686,6 @@ impl Renderer {
                 }
             }
             
-            // Clear pointers so UnloadMesh doesn't try to free our Vec memory later
             batch.mesh.vertices = std::ptr::null_mut();
             batch.mesh.texcoords = std::ptr::null_mut();
             batch.mesh.colors = std::ptr::null_mut();

@@ -54,6 +54,7 @@ struct NodeDTO {
     local_x: Option<i32>,
     local_y: Option<i32>,
     shader: Option<String>,
+    shaders: Option<Vec<String>>,
     shader_padding: Option<u32>,
 }
 
@@ -73,13 +74,11 @@ impl PackLoader {
         rl: &mut RaylibHandle,
         thread: &RaylibThread
     ) -> Result<LoadedPack> {
-        // РџР°СЂСЃРёРЅРі
         let json = provider.read_string(manifest_path)
             .context("Failed to read manifest file")?;
         let manifest: ManifestDTO = serde_json::from_str(&json)
             .context("Failed to parse manifest JSON")?;
 
-        // РђС‚Р»Р°СЃС‹
         let mut atlas_map: HashMap<String, AtlasKey> = HashMap::new();
         for (name, path) in &manifest.assets.atlases {
             let key = vg.grids.assets.load_atlas(provider, rl, thread, path)
@@ -87,7 +86,6 @@ impl PackLoader {
             atlas_map.insert(name.clone(), key);
         }
 
-        // РЁРµР№РґРµСЂС‹
         let mut shader_map: HashMap<String, ShaderKey> = HashMap::new();
         for (name, path) in &manifest.assets.shaders {
             let key = vg.grids.assets.load_shader(provider, rl, thread, path)
@@ -95,7 +93,6 @@ impl PackLoader {
             shader_map.insert(name.clone(), key);
         }
 
-        // Р“Р»РёС„СЃРµС‚С‹
         let mut glyphset_map: HashMap<String, GlyphsetKey> = HashMap::new();
         for (name, config) in &manifest.glyphsets {
             let base_atlas_key = atlas_map.get(&config.base)
@@ -113,7 +110,6 @@ impl PackLoader {
             glyphset_map.insert(name.clone(), gs_key);
         }
 
-        // Р‘СѓС„РµСЂС‹ (РЎС†РµРЅР°)
         let mut node_keys: HashMap<String, NodeKey> = HashMap::new();
         let mut buffer_keys: HashMap<String, BufferKey> = HashMap::new();
 
@@ -121,18 +117,12 @@ impl PackLoader {
             let gs_key = *glyphset_map.get(&node.glyphset)
                 .ok_or_else(|| anyhow::anyhow!("Glyphset '{}' not found for node '{}'", node.glyphset, node.name))?;
 
-            // РЎРѕР·РґР°РµРј Р±СѓС„РµСЂ
             let mut buf_builder = vg.grids.buffer(&node.name, node.width, node.height, gs_key);
-            if let Some(z) = node.z_index {
-                buf_builder = buf_builder.z_index(z);
-            }
-            if let Some(d) = node.dynamic {
-                buf_builder = buf_builder.dynamic(d);
-            }
+            if let Some(z) = node.z_index { buf_builder = buf_builder.z_index(z); }
+            if let Some(d) = node.dynamic { buf_builder = buf_builder.dynamic(d); }
             let buf_key = buf_builder.build();
             buffer_keys.insert(node.id.clone(), buf_key);
 
-            // РџСЂРёРІСЏР·РєР° РІ РёРµСЂР°СЂС…РёСЋ
             let mut builder = hierarchy.attach(Some(buf_key));
 
             if let (Some(x), Some(y)) = (node.local_x, node.local_y) {
@@ -169,16 +159,27 @@ impl PackLoader {
             };
             node_keys.insert(node.id.clone(), node_key);
 
-            // РЁРµР№РґРµСЂ
+            let padding = node.shader_padding.unwrap_or(0);
+            
+            // Р—Р°РіСЂСѓР·РєР° РѕРґРёРЅРѕС‡РЅРѕРіРѕ С€РµР№РґРµСЂР° (РѕСЃС‚Р°РІР»РµРЅРѕ РґР»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё)
             if let Some(shader_name) = &node.shader {
                 if let Some(shader_key) = shader_map.get(shader_name) {
-                    let padding = node.shader_padding.unwrap_or(0);
                     vg.renderer.attach_shader(rl, thread, &vg.grids, buf_key, *shader_key, padding);
+                }
+            }
+
+            // Р—Р°РіСЂСѓР·РєР° С†РµРїРѕС‡РєРё С€РµР№РґРµСЂРѕРІ
+            if let Some(shader_names) = &node.shaders {
+                for shader_name in shader_names {
+                    if let Some(shader_key) = shader_map.get(shader_name) {
+                        vg.renderer.attach_shader(rl, thread, &vg.grids, buf_key, *shader_key, padding);
+                    } else {
+                        eprintln!("Warning: Shader '{}' not found in manifest assets.", shader_name);
+                    }
                 }
             }
         }
 
-                // Р§РёС‚Р°РµРј РёСЃС…РѕРґРЅС‹Р№ РєРѕРґ СЃРєСЂРёРїС‚РѕРІ
         let mut loaded_scripts = HashMap::new();
         for (name, path) in &manifest.assets.scripts {
             let code = provider.read_string(path)

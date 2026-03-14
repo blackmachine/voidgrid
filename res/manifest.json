@@ -69,7 +69,10 @@
         "parent": "main_buf",
         "local_x": 4,
         "local_y": 1,
-        "shader": "chromatic",
+        "shaders": [
+           "chromatic",
+           "scanline"
+        ],
         "shader_padding": 4
       }
     ]
