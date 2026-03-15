@@ -14,9 +14,9 @@ const float RADIUS = 8.0;           // Можно смело крутить до
 const float GOLDEN_ANGLE = 2.39996323;
 
 // --- НАСТРОЙКИ СВЕТА И ЭКСПОЗИЦИИ ---
-const float bloomIntensity = 4.0;   // Сила свечения
-const float threshold = 0.05;       // Снизил порог, чтобы даже тусклые цвета давали ореол
-const float gamma = 2.7;
+const float bloomIntensity = 2.0;   // Сила свечения
+const float threshold = 0.55;       // Снизил порог, чтобы даже тусклые цвета давали ореол
+const float gamma = 2;
 
 // --- УПРАВЛЕНИЕ "ПЛЕНКОЙ" (Path to White) ---
 const float exposure = 1.2;         

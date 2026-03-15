@@ -10,7 +10,7 @@ fn update(events) { // <--- Заметь, time больше не передае�
     
     set_buffer("main_buf");
     set_cursor(4, 20);
-    set_fg(0, 255, 255, 255);
+    set_fg(127, 255, 255, 255);
     write_text(`UPTIME: ${h}:${m}:${s}    `);
     // set_cursor(4, 21);
     // write_text(`FRAME: ${frame}    `);
@@ -29,14 +29,14 @@ fn update(events) { // <--- Заметь, time больше не передае�
     for e in events {
         if e.type == "MousePress" {
             set_cursor(4, 21);
-            set_fg(255, 0, 0, 255);
+            set_fg(255, 64, 32, 255);
             // Используем обратные кавычки для интерполяции!
             write_text(`MOUSE CLICKED AT: ${e.x} X ${e.y} (${e.button.to_upper()})     `);
         }
         
         if e.type == "KeyPress" {
             set_cursor(4, 22);
-            set_fg(0, 255, 0, 255);
+            set_fg(64, 255, 64, 255);
             write_text(`KEY PRESSED CODE: ${e.key}   `);
         }
         

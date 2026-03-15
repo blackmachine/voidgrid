@@ -4,8 +4,8 @@ import sys
 import time
 
 # --- НАСТРОЙКИ ЦВЕТОВ ---
-BASE_COLOR = (0, 255, 127, 255)      # Добавили альфа-канал (255)
-HOT_COLOR = (200, 255, 230, 255)     # Добавили альфа-канал (255)
+BASE_COLOR = (255, 127, 0, 255)      # Добавили альфа-канал (255)
+HOT_COLOR = (255, 192, 127, 255)     # Добавили альфа-канал (255)
 
 def interpolate_color(c1, c2, factor):
     """Смешивает два цвета. factor=0.0 -> c1, factor=1.0 -> c2"""
@@ -44,11 +44,11 @@ def main():
     init_payload = bytearray()
     init_payload.append(0x01) # SET_BUFFER
     init_payload.extend(struct.pack('<H', 8))
-    init_payload.extend(b"main_buf")
+    init_payload.extend(b"back_buf")
     send_vtp(init_payload)
 
-    current_x = 4
-    current_y = 25
+    current_x = 0
+    current_y = 0
 
     print("\n[ КИНЕМАТОГРАФИЧНАЯ ПЕЧАТНАЯ МАШИНКА ]")
     print("Вводи текст (латиницей) и нажимай Enter.\n")
@@ -56,7 +56,7 @@ def main():
     try:
         while True:
             raw_text = input(">> ")
-            text = raw_text.upper()
+            text = raw_text#.upper()
             
             if not text:
                 continue
@@ -67,6 +67,10 @@ def main():
             for step in range(length + 3):
                 payload = bytearray()
                 
+                payload.append(0x01) # SET_BUFFER
+                payload.extend(struct.pack('<H', 8))
+                payload.extend(b"back_buf")
+
                 # На каждом шаге возвращаем курсор в начало текущей строки!
                 payload.append(0x02) # SET_CURSOR
                 payload.extend(struct.pack('<H', current_x))

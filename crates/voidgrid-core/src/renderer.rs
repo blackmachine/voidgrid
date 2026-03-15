@@ -244,18 +244,41 @@ impl Renderer {
                         let read_tex_ptr = &shader_data.textures[read_idx] as *const RenderTexture2D;
                         let read_tex = unsafe { &*read_tex_ptr };
 
-                        let mut texture_d = rl.begin_texture_mode(thread, write_rt);
+let mut texture_d = rl.begin_texture_mode(thread, write_rt);
                         texture_d.clear_background(Color::BLANK);
                         
                         unsafe {
-                            let mut shader_mode = texture_d.begin_shader_mode(&mut *shader_ptr);
-                            shader_mode.draw_texture_rec(
-                                read_tex.texture(),
-                                Rectangle::new(0.0, tex_h, tex_w, -tex_h),
-                                Vector2::new(0.0, 0.0),
-                                Color::WHITE,
-                            );
+                            // 1. ОТКЛЮЧАЕМ СМЕШИВАНИЕ! Шейдер просто заменяет пиксели.
+                            raylib::ffi::rlDisableColorBlend();
+                            
+                            // 2. Создаем искусственный блок { }, чтобы shader_mode 
+                            // завершился (drop) до того, как мы включим блендинг обратно.
+                            {
+                                let mut shader_mode = texture_d.begin_shader_mode(&mut *shader_ptr);
+                                shader_mode.draw_texture_rec(
+                                    read_tex.texture(),
+                                    Rectangle::new(0.0, tex_h, tex_w, -tex_h),
+                                    Vector2::new(0.0, 0.0),
+                                    Color::WHITE,
+                                );
+                            }
+                            
+                            // 3. ВКЛЮЧАЕМ СМЕШИВАНИЕ ОБРАТНО для остальной игры
+                            raylib::ffi::rlEnableColorBlend();
                         }
+
+                        // let mut texture_d = rl.begin_texture_mode(thread, write_rt);
+                        // texture_d.clear_background(Color::BLANK);
+                        
+                        // unsafe {
+                        //     let mut shader_mode = texture_d.begin_shader_mode(&mut *shader_ptr);
+                        //     shader_mode.draw_texture_rec(
+                        //         read_tex.texture(),
+                        //         Rectangle::new(0.0, tex_h, tex_w, -tex_h),
+                        //         Vector2::new(0.0, 0.0),
+                        //         Color::WHITE,
+                        //     );
+                        // }
                     }
                     std::mem::swap(&mut read_idx, &mut write_idx);
                 }

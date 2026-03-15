@@ -252,7 +252,7 @@ fn main() {
 
                 // 1. Обновляем логическую сетку
                 let _ = vg.grids.resize_buffer(main_buf, buf_w, buf_h);
-                let _ = vg.grids.resize_buffer(back_buf, buf_w, buf_h);
+                let _ = vg.grids.resize_buffer(back_buf, buf_w/2, buf_h/4);
 
                 // 2. ВАЖНО: Обновляем физические текстуры (RenderTexture) для шейдеров!
                 // Если этого не сделать, старая текстура растянется на новый экран.
@@ -298,40 +298,38 @@ fn main() {
                 .write(("[F11]", "inverted"))
                 .write(" FULLSCREEN ");
 
+////////////////////////////////////////////////////////
 
 
+            let ch = rand::rng().random_range(33..=90);
+            let alpha = rand::rng().random_range(0..=32);
 
-            // let ch = rand::rng().random_range(33..=90);
-            // let alpha = rand::rng().random_range(0..=32);
+            let cx = (w as f32) * 0.5*0.5;
+            let cy = (_h as f32) / 8.0;
 
-            // let cx = (w as f32) * 0.5;
-            // let cy = (_h as f32) / 2.0;
+            let seed: u64 = 42;
 
-            // let seed: u64 = 42;
+            let mut rng = StdRng::seed_from_u64(seed);
+            
 
-            // let mut rng = StdRng::seed_from_u64(seed);
+            for x in 0..w {
+                for y in 0.._h {
+                    // let ch = rng.random_range(33..=90);
+                    let ch = rand::rng().random_range(33..=90);
 
-            // for x in 0..w {
-            //     for y in 0.._h {
-            //         let ch = rng.random_range(33..=90);
+                    let luma = (((cx - x as f32).powi(2) + ((cy - y as f32)*2.0).powi(2)).sqrt() * 0.25 - current_time * 3.0).sin()* 64.0 + 64.0;
+                    let alpha = luma;
 
-            //         let luma = (((cx - x as f32).powi(2) + (cy - y as f32).powi(2)).sqrt() * 0.25
-            //             - current_time * 3.0)
-            //             .sin()
-            //             * 16.0
-            //             + 16.0;
-            //         let alpha = luma;
+                    vg.grids.set_char(
+                        back_buf,
+                        x,
+                        y,
+                        Character::new(ch, 0, Color::new(0, 255, 0, alpha as u8), Color::BLANK),
+                    );
+                }
+            }
 
-            //         vg.grids.set_char(
-            //             back_buf,
-            //             x,
-            //             y,
-            //             Character::new(ch, 0, Color::new(0, 255, 0, alpha as u8), Color::BLANK),
-            //         );
-            //     }
-            // }
-
-
+////////////////////////////////////////////////////////
 
 
         }

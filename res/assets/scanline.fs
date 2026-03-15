@@ -11,11 +11,11 @@ out vec4 finalColor;
 
 // Настройки сканлайнов
 float scanlinePeriod = 2.0; 
-float opacityScanline = 0.3;
-float opacityNoise = 0.2;
+float opacityScanline = 0.7;
+float opacityNoise = 0.3;
 
 // 1. Увеличил силу мерцания (теперь это 15% изменения прозрачности вместо 1%)
-float flickering = 0.06; 
+float flickering = 0.05; 
 
 // 2. Сила размытия (в пикселях). Можно поставить 2.0 или 3.0 для сильного мыла.
 float blurSize = 1.0; 

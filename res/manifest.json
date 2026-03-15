@@ -3,7 +3,8 @@
   "version": "1.0",
   "assets": {
     "atlases": {
-      "c64": "assets/c64.json"
+      "c64": "assets/c64.json",
+      "plex": "assets/plexmono32x64.json"
     },
 "scripts": {
       "pack_ui": "assets/ui.rhai",
@@ -16,6 +17,11 @@
     }
   },
   "glyphsets": {
+    "flexmono": {
+      "base": "plex",
+      "merges": []
+    },
+
     "composite": {
       "base": "c64",
       "merges": []
@@ -38,12 +44,13 @@
         "id": "back_buf",
         "type": "buffer",
         "name": "back",
-        "width": 64,
-        "height": 32,
-        "glyphset": "composite",
+        "width": 32,
+        "height": 16,
+        "glyphset": "flexmono",
         "z_index": -1,
         "dynamic": true,
-        "parent": "main_buf"
+        "parent": "main_buf",
+        "shaders": ["scanline", "bloom"]
       },
       {
         "id": "drop_zone_buf",
@@ -57,7 +64,8 @@
         "parent": "main_buf",
         "anchor": "BottomLeft",
         "local_x": 2,
-        "local_y": -2
+        "local_y": -2,
+        "shaders": ["scanline", "bloom"]
       },
       {
         "id": "shader_demo_buf",
@@ -71,10 +79,10 @@
         "local_x": 4,
         "local_y": 1,
         "shaders": [
-           "scanline","chromatic"
+           "scanline","chromatic", "bloom"
            
         ],
-        "shader_padding": 4
+        "shader_padding": 10
       }
     ]
   }
