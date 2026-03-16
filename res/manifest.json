@@ -38,7 +38,7 @@
         "glyphset": "composite",
         "z_index": 1,
         "dynamic": false,
-	"shaders": ["scanline", "bloom"]
+	"shaders": ["scanline"]
       },
       {
         "id": "back_buf",
@@ -50,7 +50,7 @@
         "z_index": -1,
         "dynamic": true,
         "parent": "main_buf",
-        "shaders": ["scanline", "bloom"]
+        "shaders": ["scanline"]
       },
       {
         "id": "drop_zone_buf",
@@ -65,7 +65,7 @@
         "anchor": "BottomLeft",
         "local_x": 2,
         "local_y": -2,
-        "shaders": ["scanline", "bloom"]
+        "shaders": ["scanline"]
       },
       {
         "id": "shader_demo_buf",
@@ -79,7 +79,7 @@
         "local_x": 4,
         "local_y": 1,
         "shaders": [
-           "scanline","chromatic", "bloom"
+           "scanline","chromatic"
            
         ],
         "shader_padding": 10
