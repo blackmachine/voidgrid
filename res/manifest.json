@@ -4,16 +4,20 @@
   "assets": {
     "atlases": {
       "c64": "assets/c64.json",
+      "tx2": "assets/tx02_regular.json",
+      "tx2b": "assets/tx02_bold.json",
+      "tx2t": "assets/tx02_thin.json",
       "plex": "assets/plexmono32x64.json"
     },
+
 "scripts": {
       "pack_ui": "assets/ui.rhai",
-	"demo_d": "assets/demo.rhai"
+	    "demo_d": "assets/demo.rhai"
     },
     "shaders": {
       "chromatic": "assets/chromatic.fs",
-	"scanline": "assets/scanline.fs",
-"bloom": "assets/glow.fs"
+	    "scanline": "assets/scanline.fs",
+      "bloom": "assets/glow.fs"
     }
   },
   "glyphsets": {
@@ -22,6 +26,12 @@
       "merges": []
     },
 
+    "tx": {
+      "base": "tx2",
+      "merges": ["tx2b", "tx2t"]
+    },
+
+    
     "composite": {
       "base": "c64",
       "merges": []
@@ -52,6 +62,20 @@
         "parent": "main_buf",
         "shaders": ["scanline", "bloom"]
       },
+
+      {
+        "id": "tx_buf",
+        "type": "buffer",
+        "name": "tx",
+        "width": 64,
+        "height": 32,
+        "glyphset": "tx",
+        "z_index": 5,
+        "dynamic": true,
+        "parent": "main_buf",
+        "shaders": []
+      },
+
       {
         "id": "drop_zone_buf",
         "type": "buffer",

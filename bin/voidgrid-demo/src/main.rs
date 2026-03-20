@@ -92,6 +92,7 @@ fn main() {
     vg.terminal.register_buffers(pack.buffers.clone());
     let main_buf = pack.buffers["main_buf"];
     let back_buf = pack.buffers["back_buf"];
+    let tx_buf = pack.buffers["tx_buf"];
     let drop_zone_buf = pack.buffers["drop_zone_buf"];
     let shader_demo_buf = pack.buffers["shader_demo_buf"];
 
@@ -284,7 +285,15 @@ fn main() {
         // --- Execute Rhai Script Frame ---
         script_engine.sync_state(&vg.grids, &pack.buffers);
         script_engine.run_update(current_time, &vg.events.frame_events);
-        
+
+        vg.grids
+                .print(tx_buf)
+                .at(15, 10)
+                .fg(Color::new(255, 255, 255, 255))
+                .bg(Color::new(0, 64, 0, 255))
+                .writeln(("Text block", "bold"))
+                .writeln(("This is the text block,\nplease enjoy."));
+
         for action in script_engine.take_actions() {
             vg.terminal.apply_action(&mut vg.grids, action);
         }

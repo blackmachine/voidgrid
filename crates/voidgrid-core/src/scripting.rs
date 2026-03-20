@@ -31,7 +31,10 @@ impl ScriptEngine {
             q_cur.lock().unwrap().push(Action::SetCursor(x as u32, y as u32));
         });
 
-
+        let q_bg = action_queue.clone();
+        engine.register_fn("set_bg", move |r: i64, g: i64, b: i64, a: i64| {
+            q_bg.lock().unwrap().push(Action::SetBgColor(Color::new(r as u8, g as u8, b as u8, a as u8)));
+        });
 
         let q_print = action_queue.clone();
         engine.register_fn("write_text", move |text: rhai::ImmutableString| {
@@ -42,6 +45,8 @@ impl ScriptEngine {
         engine.register_fn("set_fg", move |r: i64, g: i64, b: i64, a: i64| {
             q_fg.lock().unwrap().push(Action::SetFgColor(Color::new(r as u8, g as u8, b as u8, a as u8)));
         });
+
+        
 
         engine.register_fn("get_system_time", || -> rhai::ImmutableString {
             chrono::Local::now().format("%H:%M:%S").to_string().into()

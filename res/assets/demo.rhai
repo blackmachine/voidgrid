@@ -19,4 +19,11 @@ fn update(events) {
     set_cursor(4, 19);
     write_text(`${bw} X ${bh}`);
 
+
+    set_buffer("tx_buf");
+    set_fg(64, 48, 32, 255);
+    set_bg(192, 192, 255, 255);
+    set_cursor(1, 1);
+    write_text(`Oh hi Mark`);
+
 }
