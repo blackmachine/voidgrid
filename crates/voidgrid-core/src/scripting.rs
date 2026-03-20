@@ -41,6 +41,22 @@ impl ScriptEngine {
             q_print.lock().unwrap().push(Action::PrintString(text.to_string()));
         });
 
+// 1. Функция изменения состояния шрифта
+        let q_variant = action_queue.clone();
+        engine.register_fn("set_variant", move |variant: rhai::ImmutableString| {
+            q_variant.lock().unwrap().push(Action::SetVariantByName(variant.to_string()));
+        });
+
+        // 2. Перегрузка write_text с двумя аргументами
+        let q_print_var = action_queue.clone();
+        engine.register_fn("write_text", move |text: rhai::ImmutableString, variant: rhai::ImmutableString| {
+            let mut q = q_print_var.lock().unwrap();
+            q.push(Action::SetVariantByName(variant.to_string()));
+            q.push(Action::PrintString(text.to_string()));
+            q.push(Action::SetVariantByName("default".to_string())); // Возвращаем базовый вариант
+        });
+
+
         let q_fg = action_queue.clone();
         engine.register_fn("set_fg", move |r: i64, g: i64, b: i64, a: i64| {
             q_fg.lock().unwrap().push(Action::SetFgColor(Color::new(r as u8, g as u8, b as u8, a as u8)));

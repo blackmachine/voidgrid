@@ -11,6 +11,7 @@ pub enum Action {
     SetFgColor(Color),
     SetBgColor(Color),
     SetVariant(u8),
+    SetVariantByName(String),
     PrintChar(u32),
     PrintString(String),
 }
@@ -58,6 +59,20 @@ impl TerminalState {
             Action::SetFgColor(c) => self.fg_color = c,
             Action::SetBgColor(c) => self.bg_color = c,
             Action::SetVariant(v) => self.variant_id = v,
+            Action::SetVariantByName(name) => {
+                if let Some(buf_key) = self.active_buffer {
+                    if let Some(buf) = grids.buffers.get(buf_key) {
+                        let gs_key = buf.glyphset();
+                        if let Some(gs) = grids.assets.glyphsets.get(gs_key) {
+                            if let Some(&id) = gs.variant_names.get(&name) {
+                                self.variant_id = id;
+                            } else {
+                                self.variant_id = 0; // Фолбэк на дефолт, если опечатались в названии
+                            }
+                        }
+                    }
+                }
+            }
             Action::PrintChar(code) => {
                 if let Some(key) = self.active_buffer {
                     if let Some(ch) = char::from_u32(code) {

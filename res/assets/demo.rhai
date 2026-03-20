@@ -14,7 +14,9 @@ fn update(events) {
   
 
     // --- ОТРИСОВКА ---
+    
     set_buffer("main_buf");
+    
     set_fg(255, 200, 50, 255);
     set_cursor(4, 19);
     write_text(`${bw} X ${bh}`);
@@ -23,7 +25,9 @@ fn update(events) {
     set_buffer("tx_buf");
     set_fg(64, 48, 32, 255);
     set_bg(192, 192, 255, 255);
-    set_cursor(1, 1);
-    write_text(`Oh hi Mark`);
-
+    set_cursor(10, 1);
+    write_text(`Oh hi Mark`, `bold`);
+    set_cursor(10, 2);
+    write_text(`It's you`, `thin`);
+    set_bg(0, 0, 0, 0);
 }
