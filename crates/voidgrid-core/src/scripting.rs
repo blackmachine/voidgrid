@@ -26,6 +26,10 @@ impl ScriptEngine {
             q_buf.lock().unwrap().push(Action::SetBuffer(name.to_string()));
         });
 
+        engine.register_fn("log", move |logstring: rhai::ImmutableString| {
+            print!("{}", logstring);
+        });
+
         let q_cur = action_queue.clone();
         engine.register_fn("set_cursor", move |x: i64, y: i64| {
             q_cur.lock().unwrap().push(Action::SetCursor(x as u32, y as u32));
