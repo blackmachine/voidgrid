@@ -176,6 +176,11 @@ fn main() {
     // ВАЖНО: Вызываем run_init() только ПОСЛЕ загрузки всех скриптов из пака!
     script_engine.run_init();
     // ---------------------------
+    // !! render_list предыдущего кадра — нужен для mouse_to_cell() в скриптах.
+    // !! Без этого mouse_to_cell() всегда возвращает (), потому что не знает
+    // !! экранных координат буферов. Обновляется в конце кадра после collect_render_list().
+    let mut prev_render_list: Vec<voidgrid::hierarchy::RenderItem> = Vec::new();
+
     let mut is_resized = false;
 
     while !rl.window_should_close() {
@@ -281,8 +286,8 @@ fn main() {
             }
         }
 
-        // --- Строка статуса ---
         // --- Execute Rhai Script Frame ---
+        script_engine.sync_screen_positions(&prev_render_list, &vg.grids, &pack.buffers);
         script_engine.sync_state(&vg.grids, &pack.buffers);
         script_engine.run_update(current_time, &vg.events.frame_events);
 
@@ -422,5 +427,8 @@ fn main() {
             chrome.draw(&mut d);
             // d.draw_fps(10, 10);
         }
+
+        // Сохраняем render_list для mouse_to_cell() в следующем кадре
+        prev_render_list = render_list;
     }
 }

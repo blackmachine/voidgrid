@@ -30,4 +30,17 @@ fn update(events) {
     set_cursor(10, 2);
     write_text(`It's you`, `thin`);
     set_bg(0, 0, 0, 0);
+
+
+    for e in events {
+    if e.type == "MousePress" {
+        let cell = mouse_to_cell("tx_buf", e.x, e.y);
+        if cell != () {
+            set_fg(255, 64, 0, 255);
+            set_cursor(cell.x, cell.y);
+            write_text(`+`);
+            log(`${cell.x} - ${cell.y}`);
+        }
+    }
+}
 }

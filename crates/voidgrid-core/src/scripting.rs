@@ -4,7 +4,19 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use crate::terminal::Action;
 use crate::events::{Event, MouseButton};
+use crate::hierarchy::RenderItem;
 use raylib::prelude::Color;
+
+/// Снимок данных буфера для чтения из скриптов
+struct BufferSnapshot {
+    w: u32,
+    h: u32,
+    /// (char_code, fg [r,g,b,a], bg [r,g,b,a])
+    cells: Vec<(u32, [u8; 4], [u8; 4])>,
+}
+
+/// Экранная позиция буфера и размер тайла (для mouse_to_cell)
+type ScreenInfo = (i32, i32, i32, i32); // (screen_x, screen_y, tile_w, tile_h)
 
 pub struct ScriptEngine {
     engine: Engine,
@@ -13,6 +25,8 @@ pub struct ScriptEngine {
     states: HashMap<String, Dynamic>,
     action_queue: Arc<Mutex<Vec<Action>>>,
     buffer_sizes: Arc<Mutex<HashMap<String, (u32, u32)>>>,
+    buffer_data: Arc<Mutex<HashMap<String, BufferSnapshot>>>,
+    buffer_screen: Arc<Mutex<HashMap<String, ScreenInfo>>>,
     /// Скрипты, в которых нет функции update (чтобы не спамить ошибкой каждый кадр)
     missing_update: HashSet<String>,
     /// Скрипты, в которых нет функции init
@@ -112,6 +126,37 @@ impl ScriptEngine {
             q_fg.lock().unwrap().push(Action::SetFgColor(Color::new(r as u8, g as u8, b as u8, a as u8)));
         });
 
+        // --- Character output ---
+
+        let q_char = action_queue.clone();
+        engine.register_fn("print_char", move |code: i64| {
+            q_char.lock().unwrap().push(Action::PrintChar(code as u32));
+        });
+
+        // --- Buffer management ---
+
+        let q_clear = action_queue.clone();
+        engine.register_fn("clear_buffer", move |name: rhai::ImmutableString| {
+            q_clear.lock().unwrap().push(Action::ClearBuffer(name.to_string()));
+        });
+
+        let q_vis = action_queue.clone();
+        engine.register_fn("set_buffer_visible", move |name: rhai::ImmutableString, visible: bool| {
+            q_vis.lock().unwrap().push(Action::SetBufferVisible(name.to_string(), visible));
+        });
+
+        let q_opa = action_queue.clone();
+        engine.register_fn("set_buffer_opacity", move |name: rhai::ImmutableString, opacity: f64| {
+            q_opa.lock().unwrap().push(Action::SetBufferOpacity(name.to_string(), opacity as f32));
+        });
+
+        let q_z = action_queue.clone();
+        engine.register_fn("set_buffer_z", move |name: rhai::ImmutableString, z: i64| {
+            q_z.lock().unwrap().push(Action::SetBufferZ(name.to_string(), z as i32));
+        });
+
+        // --- Query functions ---
+
         engine.register_fn("get_system_time", || -> rhai::ImmutableString {
             chrono::Local::now().format("%H:%M:%S").to_string().into()
         });
@@ -126,6 +171,66 @@ impl ScriptEngine {
             b_h.lock().unwrap().get(name.as_str()).map(|&(_, h)| h as i64).unwrap_or(0)
         });
 
+        // --- Cell reading ---
+
+        let buffer_data: Arc<Mutex<HashMap<String, BufferSnapshot>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let bd = buffer_data.clone();
+        engine.register_fn("get_cell", move |buf_name: rhai::ImmutableString, x: i64, y: i64| -> Dynamic {
+            let data = bd.lock().unwrap();
+            let Some(snap) = data.get(buf_name.as_str()) else {
+                return Dynamic::UNIT;
+            };
+            if x < 0 || y < 0 || x as u32 >= snap.w || y as u32 >= snap.h {
+                return Dynamic::UNIT;
+            }
+            let idx = (y as u32 * snap.w + x as u32) as usize;
+            let (code, fg, bg) = &snap.cells[idx];
+            let mut map = Map::new();
+            map.insert("code".into(), Dynamic::from(*code as i64));
+            map.insert("char".into(), Dynamic::from(char::from_u32(*code).unwrap_or(' ').to_string()));
+            map.insert("fg_r".into(), Dynamic::from(fg[0] as i64));
+            map.insert("fg_g".into(), Dynamic::from(fg[1] as i64));
+            map.insert("fg_b".into(), Dynamic::from(fg[2] as i64));
+            map.insert("fg_a".into(), Dynamic::from(fg[3] as i64));
+            map.insert("bg_r".into(), Dynamic::from(bg[0] as i64));
+            map.insert("bg_g".into(), Dynamic::from(bg[1] as i64));
+            map.insert("bg_b".into(), Dynamic::from(bg[2] as i64));
+            map.insert("bg_a".into(), Dynamic::from(bg[3] as i64));
+            Dynamic::from_map(map)
+        });
+
+        // --- Hit testing ---
+
+        let buffer_screen: Arc<Mutex<HashMap<String, ScreenInfo>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let bs = buffer_screen.clone();
+        let bs_sizes = buffer_sizes.clone();
+        engine.register_fn("mouse_to_cell", move |buf_name: rhai::ImmutableString, mx: f64, my: f64| -> Dynamic {
+            let screen = bs.lock().unwrap();
+            let Some(&(sx, sy, tw, th)) = screen.get(buf_name.as_str()) else {
+                return Dynamic::UNIT;
+            };
+            let local_x = mx as i32 - sx;
+            let local_y = my as i32 - sy;
+            if local_x < 0 || local_y < 0 || tw == 0 || th == 0 {
+                return Dynamic::UNIT;
+            }
+            let cx = local_x / tw;
+            let cy = local_y / th;
+            // Проверяем границы буфера
+            let sizes = bs_sizes.lock().unwrap();
+            if let Some(&(w, h)) = sizes.get(buf_name.as_str()) {
+                if cx as u32 >= w || cy as u32 >= h {
+                    return Dynamic::UNIT;
+                }
+            }
+            let mut map = Map::new();
+            map.insert("x".into(), Dynamic::from(cx as i64));
+            map.insert("y".into(), Dynamic::from(cy as i64));
+            Dynamic::from_map(map)
+        });
+
         Self {
             engine,
             scope: Scope::new(),
@@ -133,6 +238,8 @@ impl ScriptEngine {
             states: HashMap::new(),
             action_queue,
             buffer_sizes,
+            buffer_data,
+            buffer_screen,
             missing_update: HashSet::new(),
             missing_init: HashSet::new(),
             logged_errors: HashMap::new(),
@@ -219,9 +326,56 @@ impl ScriptEngine {
     pub fn sync_state(&self, grids: &crate::grids::Grids, buffer_map: &HashMap<String, crate::types::BufferKey>) {
         let mut sizes = self.buffer_sizes.lock().unwrap();
         sizes.clear();
+
+        let mut data = self.buffer_data.lock().unwrap();
+        data.clear();
+
         for (name, &key) in buffer_map {
-            if let Some((w, h)) = grids.buffer_size(key) {
-                sizes.insert(name.clone(), (w, h));
+            if let Some(buf) = grids.get(key) {
+                sizes.insert(name.clone(), (buf.w, buf.h));
+
+                let mut cells = Vec::with_capacity((buf.w * buf.h) as usize);
+                for y in 0..buf.h {
+                    for x in 0..buf.w {
+                        if let Some(ch) = buf.get(x, y) {
+                            cells.push((
+                                ch.code,
+                                [ch.fcolor.r, ch.fcolor.g, ch.fcolor.b, ch.fcolor.a],
+                                [ch.bcolor.r, ch.bcolor.g, ch.bcolor.b, ch.bcolor.a],
+                            ));
+                        } else {
+                            cells.push((32, [255, 255, 255, 255], [0, 0, 0, 0]));
+                        }
+                    }
+                }
+                data.insert(name.clone(), BufferSnapshot { w: buf.w, h: buf.h, cells });
+            }
+        }
+    }
+
+    /// Синхронизирует экранные позиции буферов из render list предыдущего кадра.
+    /// Вызывать перед run_update(), чтобы mouse_to_cell() работал корректно.
+    pub fn sync_screen_positions(
+        &self,
+        render_list: &[RenderItem],
+        grids: &crate::grids::Grids,
+        buffer_map: &HashMap<String, crate::types::BufferKey>,
+    ) {
+        // Обратный маппинг: BufferKey → имя
+        let key_to_name: HashMap<crate::types::BufferKey, &str> = buffer_map.iter()
+            .map(|(name, &key)| (key, name.as_str()))
+            .collect();
+
+        let mut screen = self.buffer_screen.lock().unwrap();
+        screen.clear();
+
+        for item in render_list {
+            if let Some(&name) = key_to_name.get(&item.buffer) {
+                if let Some(buf) = grids.get(item.buffer) {
+                    if let Some((tw, th)) = grids.assets.glyphset_size(buf.glyphset()) {
+                        screen.insert(name.to_string(), (item.screen_x, item.screen_y, tw as i32, th as i32));
+                    }
+                }
             }
         }
     }
@@ -258,11 +412,15 @@ impl ScriptEngine {
                     map.insert("type".into(), Dynamic::from("KeyPress"));
                     map.insert("key".into(), Dynamic::from(*key as i64));
                 }
+                Event::MouseMove { x, y } => {
+                    map.insert("type".into(), Dynamic::from("MouseMove"));
+                    map.insert("x".into(), Dynamic::from(*x as f64));
+                    map.insert("y".into(), Dynamic::from(*y as f64));
+                }
                 Event::FileDrop { path } => {
                     map.insert("type".into(), Dynamic::from("FileDrop"));
                     map.insert("path".into(), Dynamic::from(path.clone()));
                 }
-                _ => {}
             }
             if !map.is_empty() {
                 rhai_events.push(Dynamic::from_map(map));

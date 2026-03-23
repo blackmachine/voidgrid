@@ -14,6 +14,10 @@ pub enum Action {
     SetVariantByName(String),
     PrintChar(u32),
     PrintString(String),
+    ClearBuffer(String),
+    SetBufferVisible(String, bool),
+    SetBufferOpacity(String, f32),
+    SetBufferZ(String, i32),
 }
 
 pub struct TerminalState {
@@ -93,6 +97,26 @@ impl TerminalState {
                         .color(self.fg_color, self.bg_color)
                         .write(text.as_ref());
                     self.cursor_x += text.chars().count() as u32;
+                }
+            }
+            Action::ClearBuffer(name) => {
+                if let Some(&key) = self.buffer_map.get(&name) {
+                    grids.clear_buffer(key);
+                }
+            }
+            Action::SetBufferVisible(name, visible) => {
+                if let Some(&key) = self.buffer_map.get(&name) {
+                    grids.set_visible(key, visible);
+                }
+            }
+            Action::SetBufferOpacity(name, opacity) => {
+                if let Some(&key) = self.buffer_map.get(&name) {
+                    grids.set_opacity(key, opacity);
+                }
+            }
+            Action::SetBufferZ(name, z) => {
+                if let Some(&key) = self.buffer_map.get(&name) {
+                    grids.set_buffer_z(key, z);
                 }
             }
         }
