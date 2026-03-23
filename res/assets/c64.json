@@ -1,14 +1,18 @@
 {
-  "tile_width": 16,
-  "tile_height": 16,
-  "columns": 16,
-  "texture_path": "assets/c64.png",
-  "default_glyph": 32,
-  "semantic_groups": {
-    "raw": {
-      "source": "chars:@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?",
-      "variants": { "default": 0}
+  "name": "c64",
+  "default_byte": 32,
+  "nodes": {
+    "/": {
+      "layers": [
+        {
+          "bytes": [64, 95],
+          "source": { "file": "assets/c64.png", "w": 16, "h": 16, "cols": 16, "start": 0 }
+        },
+        {
+          "bytes": [32, 63],
+          "source": { "file": "assets/c64.png", "w": 16, "h": 16, "cols": 16, "start": 32 }
+        }
+      ]
     }
-    
   }
 }

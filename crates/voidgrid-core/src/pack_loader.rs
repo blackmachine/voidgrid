@@ -1,4 +1,4 @@
-﻿#![allow(dead_code)]
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 use anyhow::{Context, Result};
@@ -6,15 +6,18 @@ use raylib::prelude::*;
 use serde::Deserialize;
 
 use crate::VoidGrid;
+use crate::asset_manager::ComposeRule;
 use crate::hierarchy::{Hierarchy, Anchor, NodeKey};
 use crate::resource_pack::ResourceProvider;
-use crate::types::{BufferKey, AtlasKey, ShaderKey, GlyphsetKey};
+use crate::types::{BufferKey, ShaderKey, GlyphsetKey};
 
 #[derive(Deserialize)]
 struct ManifestDTO {
     name: String,
     version: String,
     assets: AssetConfigDTO,
+    #[serde(default)]
+    mounts: HashMap<String, String>,
     glyphsets: HashMap<String, GlyphsetConfigDTO>,
     scene: SceneDTO,
 }
@@ -29,8 +32,7 @@ struct AssetConfigDTO {
 
 #[derive(Deserialize)]
 struct GlyphsetConfigDTO {
-    base: String,
-    merges: Vec<String>,
+    compose: Vec<ComposeRule>,
 }
 
 #[derive(Deserialize)]
@@ -79,13 +81,20 @@ impl PackLoader {
         let manifest: ManifestDTO = serde_json::from_str(&json)
             .context("Failed to parse manifest JSON")?;
 
-        let mut atlas_map: HashMap<String, AtlasKey> = HashMap::new();
+        // 1. Load atlas descriptors (and their PNGs)
         for (name, path) in &manifest.assets.atlases {
-            let key = vg.grids.assets.load_atlas(provider, rl, thread, path)
+            let loaded_name = vg.grids.assets.load_atlas_descriptor(provider, rl, thread, path)
                 .map_err(|e| anyhow::anyhow!("Failed to load atlas '{}': {}", name, e))?;
-            atlas_map.insert(name.clone(), key);
+            // If the descriptor's internal name differs from the manifest key,
+            // register under the manifest key as well
+            if &loaded_name != name {
+                if let Some(desc) = vg.grids.assets.descriptors.get(&loaded_name).cloned() {
+                    vg.grids.assets.descriptors.insert(name.clone(), desc);
+                }
+            }
         }
 
+        // 2. Load shaders
         let mut shader_map: HashMap<String, ShaderKey> = HashMap::new();
         for (name, path) in &manifest.assets.shaders {
             let key = vg.grids.assets.load_shader(provider, rl, thread, path)
@@ -93,23 +102,20 @@ impl PackLoader {
             shader_map.insert(name.clone(), key);
         }
 
+        // 3. Build mount tree
+        for (mount_path, descriptor_name) in &manifest.mounts {
+            vg.grids.assets.tree.mount(mount_path, descriptor_name);
+        }
+
+        // 4. Compose glyphsets
         let mut glyphset_map: HashMap<String, GlyphsetKey> = HashMap::new();
         for (name, config) in &manifest.glyphsets {
-            let base_atlas_key = atlas_map.get(&config.base)
-                .ok_or_else(|| anyhow::anyhow!("Base atlas '{}' not found for glyphset '{}'", config.base, name))?;
-            
-            let gs_key = vg.grids.assets.create_glyphset_from_atlas(name, *base_atlas_key);
-            
-            for merge_name in &config.merges {
-                if let Some(merge_key) = atlas_map.get(merge_name) {
-                    vg.grids.assets.merge_atlas(gs_key, *merge_key);
-                } else {
-                    eprintln!("Warning: Merge atlas '{}' not found for glyphset '{}'", merge_name, name);
-                }
-            }
+            let gs_key = vg.grids.assets.compose_glyphset(name, &config.compose)
+                .map_err(|e| anyhow::anyhow!("Failed to compose glyphset '{}': {}", name, e))?;
             glyphset_map.insert(name.clone(), gs_key);
         }
 
+        // 5. Build scene
         let mut node_keys: HashMap<String, NodeKey> = HashMap::new();
         let mut buffer_keys: HashMap<String, BufferKey> = HashMap::new();
 
@@ -160,15 +166,13 @@ impl PackLoader {
             node_keys.insert(node.id.clone(), node_key);
 
             let padding = node.shader_padding.unwrap_or(0);
-            
-            // Р—Р°РіСЂСѓР·РєР° РѕРґРёРЅРѕС‡РЅРѕРіРѕ С€РµР№РґРµСЂР° (РѕСЃС‚Р°РІР»РµРЅРѕ РґР»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё)
+
             if let Some(shader_name) = &node.shader {
                 if let Some(shader_key) = shader_map.get(shader_name) {
                     vg.renderer.attach_shader(rl, thread, &vg.grids, buf_key, *shader_key, padding);
                 }
             }
 
-            // Р—Р°РіСЂСѓР·РєР° С†РµРїРѕС‡РєРё С€РµР№РґРµСЂРѕРІ
             if let Some(shader_names) = &node.shaders {
                 for shader_name in shader_names {
                     if let Some(shader_key) = shader_map.get(shader_name) {
@@ -180,6 +184,7 @@ impl PackLoader {
             }
         }
 
+        // 6. Load scripts
         let mut loaded_scripts = HashMap::new();
         for (name, path) in &manifest.assets.scripts {
             let code = provider.read_string(path)

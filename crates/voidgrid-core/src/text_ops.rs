@@ -2,7 +2,7 @@ use raylib::prelude::Color;
 use crate::grids::Grids;
 use crate::types::{BufferKey, Blend, Mask, WriteDirection, Transform, Character};
 
-/// Трейт для аргументов печати: позволяет передавать просто строку или кортеж (строка, вариант)
+/// Trait for print arguments: allows passing a plain string or a (string, variant) tuple.
 pub trait Printable {
     fn content(&self) -> &str;
     fn style_variant(&self) -> Option<&str>;
@@ -23,7 +23,6 @@ impl Printable for (&str, &str) {
     fn style_variant(&self) -> Option<&str> { Some(self.1) }
 }
 
-/// Трейт для операций вывода текста
 pub trait TextOps {
     fn write_string(
         &mut self,
@@ -62,17 +61,6 @@ pub trait TextOps {
         variant: &str,
     );
 
-    fn put_icon(
-        &mut self,
-        buffer: BufferKey,
-        x: u32,
-        y: u32,
-        icon_name: &str,
-        fcolor: Color,
-        bcolor: Color,
-    );
-
-    /// Создать принтер для удобного вывода
     fn print<'a>(&'a mut self, buffer: BufferKey) -> Printer<'a>;
 }
 
@@ -86,8 +74,8 @@ impl TextOps for Grids {
         fcolor: Color,
         bcolor: Color,
     ) {
-        self.write_string_full(buffer, x, y, text, fcolor, bcolor, 
-            Blend::Alpha, Blend::Alpha, Transform::default(), None, 
+        self.write_string_full(buffer, x, y, text, fcolor, bcolor,
+            Blend::Alpha, Blend::Alpha, Transform::default(), None,
             WriteDirection::Right, false);
     }
 
@@ -106,17 +94,15 @@ impl TextOps for Grids {
         direction: WriteDirection,
         auto_rotate: bool,
     ) {
-        // Получаем buffer и его default_variant_id
         let (_glyphset_key, default_variant_id) = match self.buffers.get(buffer) {
             Some(b) => (b.glyphset(), b.default_variant_id),
             None => return,
         };
-        
+
         let (dx, dy) = direction.delta();
         let mut cx = x as i32;
         let mut cy = y as i32;
-        
-        // Определяем трансформацию для символов
+
         let char_transform = if auto_rotate {
             Transform {
                 rotation: direction.rotation(),
@@ -126,8 +112,7 @@ impl TextOps for Grids {
         } else {
             base_transform
         };
-        
-        // Собираем символы для записи
+
         let chars: Vec<(u32, u32, Character)> = text.chars()
             .filter_map(|ch| {
                 if ch == '\n' {
@@ -150,8 +135,7 @@ impl TextOps for Grids {
                 }
             })
             .collect();
-        
-        // Записываем в буфер
+
         if let Some(buf) = self.buffers.get_mut(buffer) {
             for (x, y, ch) in chars {
                 buf.set(x, y, ch);
@@ -177,10 +161,10 @@ impl TextOps for Grids {
             Some(g) => g,
             None => return,
         };
-        
+
         let mut cx = x;
         let mut cy = y;
-        
+
         let variant_id = *glyphset.variant_names.get(variant).unwrap_or(&0);
 
         let chars: Vec<(u32, u32, Character)> = text.chars()
@@ -200,32 +184,11 @@ impl TextOps for Grids {
                 }
             })
             .collect();
-        
+
         if let Some(buf) = self.buffers.get_mut(buffer) {
             for (x, y, ch) in chars {
                 buf.set(x, y, ch);
             }
-        }
-    }
-
-    fn put_icon(
-        &mut self,
-        buffer: BufferKey,
-        x: u32,
-        y: u32,
-        icon_name: &str,
-        fcolor: Color,
-        bcolor: Color,
-    ) {
-        let (glyphset_key, default_variant_id) = match self.buffers.get(buffer) {
-            Some(b) => (b.glyphset(), b.default_variant_id),
-            None => return,
-        };
-        
-        if let Some(code) = self.assets.resolve_code(glyphset_key, icon_name) {
-             if let Some(buf) = self.buffers.get_mut(buffer) {
-                buf.set(x, y, Character::new(code, default_variant_id, fcolor, bcolor));
-             }
         }
     }
 
@@ -301,13 +264,12 @@ impl<'a> Printer<'a> {
         } else {
             self.grids.write_string(self.buffer, self.x, self.y, text, self.fg, self.bg);
         }
-        
-        // Обновляем курсор
+
         let start_x = self.x;
         for ch in text.chars() {
             if ch == '\n' {
                 self.y += 1;
-                self.x = start_x; // write_string сбрасывает X к началу вызова
+                self.x = start_x;
             } else {
                 self.x += 1;
             }
@@ -324,11 +286,5 @@ impl<'a> Printer<'a> {
     pub fn writeln(mut self, input: impl Printable) -> Self {
         self = self.write(input);
         self.ln()
-    }
-
-    pub fn icon(mut self, name: &str) -> Self {
-        self.grids.put_icon(self.buffer, self.x, self.y, name, self.fg, self.bg);
-        self.x += 1;
-        self
     }
 }

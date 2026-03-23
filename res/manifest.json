@@ -9,32 +9,40 @@
       "tx2t": "assets/tx02_thin.json",
       "plex": "assets/plexmono32x64.json"
     },
-
-"scripts": {
+    "scripts": {
       "pack_ui": "assets/ui.rhai",
-	    "demo_d": "assets/demo.rhai"
+      "demo_d": "assets/demo.rhai"
     },
     "shaders": {
       "chromatic": "assets/chromatic.fs",
-	    "scanline": "assets/scanline.fs",
+      "scanline": "assets/scanline.fs",
       "bloom": "assets/glow.fs"
     }
   },
+  "mounts": {
+    "/fonts/c64": "c64",
+    "/fonts/tx2": "tx2",
+    "/fonts/tx2b": "tx2b",
+    "/fonts/tx2t": "tx2t",
+    "/fonts/plex": "plex"
+  },
   "glyphsets": {
     "flexmono": {
-      "base": "plex",
-      "merges": []
+      "compose": [
+        { "node": "/fonts/plex" }
+      ]
     },
-
     "tx": {
-      "base": "tx2",
-      "merges": ["tx2b", "tx2t"]
+      "compose": [
+        { "node": "/fonts/tx2" },
+        { "node": "/fonts/tx2b", "as_variant": "bold" },
+        { "node": "/fonts/tx2t", "as_variant": "thin" }
+      ]
     },
-
-    
     "composite": {
-      "base": "c64",
-      "merges": []
+      "compose": [
+        { "node": "/fonts/c64" }
+      ]
     }
   },
   "scene": {
@@ -48,7 +56,7 @@
         "glyphset": "composite",
         "z_index": 1,
         "dynamic": false,
-	"shaders": ["scanline"]
+        "shaders": ["scanline"]
       },
       {
         "id": "back_buf",
@@ -62,7 +70,6 @@
         "parent": "main_buf",
         "shaders": ["scanline"]
       },
-
       {
         "id": "tx_buf",
         "type": "buffer",
@@ -75,7 +82,6 @@
         "parent": "main_buf",
         "shaders": []
       },
-
       {
         "id": "drop_zone_buf",
         "type": "buffer",
@@ -102,10 +108,7 @@
         "parent": "main_buf",
         "local_x": 4,
         "local_y": 1,
-        "shaders": [
-           "scanline","chromatic"
-           
-        ],
+        "shaders": ["scanline", "chromatic"],
         "shader_padding": 10
       }
     ]

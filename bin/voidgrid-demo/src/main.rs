@@ -111,8 +111,8 @@ fn main() {
     // Drop zone state
     let mut drop_zone = DropZone::new();
 
-    // Выводим содержимое реестра для отладки
-    vg.grids.assets.debug_print_registry();
+    // Debug: print registry stats
+    println!("Global registry: {} entries", vg.grids.assets.global_registry.entries.len());
 
     let mut start_time: Instant;
     start_time = Instant::now();

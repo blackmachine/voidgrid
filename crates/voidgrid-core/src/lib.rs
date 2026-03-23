@@ -19,6 +19,7 @@ pub mod ui;
 pub mod asset_manager;
 pub mod resource_pack;
 pub mod pack_loader;
+pub mod virtual_tree;
 pub use voidgrid_vtp as vtp;
 
 use raylib::prelude::*;

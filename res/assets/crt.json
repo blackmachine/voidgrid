@@ -1,25 +1,46 @@
 {
-  "tile_width": 16,
-  "tile_height": 16,
-  "columns": 32,
-  "texture_path": "assets/crt.png",
-  "default_glyph": 32,
-  "semantic_groups": {
-    "latin_upper": {
-      "source": "ascii_upper",
-      "variants": { "default": 1, "inverted": 129 }
+  "name": "crt",
+  "default_byte": 32,
+  "nodes": {
+    "/": {
+      "layers": [
+        {
+          "bytes": [64, 64],
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 0 }
+        },
+        {
+          "bytes": [65, 90],
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 1 }
+        },
+        {
+          "bytes": [97, 122],
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 65 }
+        },
+        {
+          "chars": "[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?",
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 27 }
+        }
+      ]
     },
-    "latin_lower": {
-      "source": "ascii_lower",
-      "variants": { "default": 65, "inverted": 193 }
-    },
-    "special_block": {
-      "source": "chars:[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?",
-      "variants": { "default": 27, "inverted": 155 }
-    },
-    "at_symbol": {
-      "source": "chars:@",
-      "variants": { "default": 0, "inverted": 128 }
+    "/:inverted": {
+      "layers": [
+        {
+          "bytes": [64, 64],
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 128 }
+        },
+        {
+          "bytes": [65, 90],
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 129 }
+        },
+        {
+          "bytes": [97, 122],
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 193 }
+        },
+        {
+          "chars": "[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?",
+          "source": { "file": "assets/crt.png", "w": 16, "h": 16, "cols": 32, "start": 155 }
+        }
+      ]
     }
   }
 }
