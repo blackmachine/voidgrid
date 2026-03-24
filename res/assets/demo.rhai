@@ -23,6 +23,35 @@ fn update(events) {
 
 
     set_buffer("tx_buf");
+
+
+    for e in events {
+    if e.type == "MousePress" {
+        clear_buffer("tx_buf");
+        let cell = mouse_to_cell("tx_buf", e.x, e.y);
+        if cell != () {
+            set_fg(255, 64, 0, 64);
+            
+            log(`${cell.x} - ${cell.y}`);
+            
+            let result = "";
+            for i in 0..bh {
+                   set_cursor(cell.x, i);
+                   write_text("|");
+            }
+            for i in 0..bw {
+                   set_cursor(i, cell.y);
+                   write_text("-");
+
+            }
+            set_fg(255, 64, 0, 255);
+            set_cursor(cell.x, cell.y);
+            write_text("+");
+        }
+    }
+
+    
+    
     set_fg(64, 48, 32, 255);
     set_bg(192, 192, 255, 255);
     set_cursor(10, 1);
@@ -30,17 +59,5 @@ fn update(events) {
     set_cursor(10, 2);
     write_text(`It's you`, `thin`);
     set_bg(0, 0, 0, 0);
-
-
-    for e in events {
-    if e.type == "MousePress" {
-        let cell = mouse_to_cell("tx_buf", e.x, e.y);
-        if cell != () {
-            set_fg(255, 64, 0, 255);
-            set_cursor(cell.x, cell.y);
-            write_text(`+`);
-            log(`${cell.x} - ${cell.y}`);
-        }
-    }
 }
 }
