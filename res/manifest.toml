@@ -1,0 +1,106 @@
+name = "Main Terminal Scene"
+version = "1.0"
+
+[assets.atlases]
+c64 = "assets/c64.toml"
+tx2 = "assets/tx02_regular.toml"
+tx2b = "assets/tx02_bold.toml"
+tx2t = "assets/tx02_thin.toml"
+plex = "assets/plexmono32x64.toml"
+
+[assets.scripts]
+pack_ui = "assets/ui.rhai"
+demo_d = "assets/demo.rhai"
+
+[assets.shaders]
+chromatic = "assets/chromatic.fs"
+scanline = "assets/scanline.fs"
+bloom = "assets/glow.fs"
+
+[mounts]
+"/fonts/c64" = "c64"
+"/fonts/tx2" = "tx2"
+"/fonts/tx2b" = "tx2b"
+"/fonts/tx2t" = "tx2t"
+"/fonts/plex" = "plex"
+
+[glyphsets.flexmono]
+compose = [
+    { node = "/fonts/plex" },
+]
+
+[glyphsets.tx]
+compose = [
+    { node = "/fonts/tx2" },
+    { node = "/fonts/tx2b", as_variant = "bold" },
+    { node = "/fonts/tx2t", as_variant = "thin" },
+]
+
+[glyphsets.composite]
+compose = [
+    { node = "/fonts/c64" },
+]
+
+[[scene.nodes]]
+id = "main_buf"
+type = "buffer"
+name = "main"
+width = 64
+height = 32
+glyphset = "composite"
+z_index = 3
+dynamic = false
+shaders = ["scanline"]
+
+[[scene.nodes]]
+id = "back_buf"
+type = "buffer"
+name = "back"
+width = 32
+height = 16
+glyphset = "flexmono"
+z_index = -1
+dynamic = true
+parent = "main_buf"
+shaders = ["scanline"]
+
+[[scene.nodes]]
+id = "tx_buf"
+type = "buffer"
+name = "tx"
+width = 64
+height = 32
+glyphset = "tx"
+z_index = -2
+dynamic = true
+parent = "main_buf"
+shaders = []
+
+[[scene.nodes]]
+id = "drop_zone_buf"
+type = "buffer"
+name = "drop_zone"
+width = 40
+height = 1
+glyphset = "composite"
+z_index = 100
+dynamic = true
+parent = "main_buf"
+anchor = "BottomLeft"
+local_x = 2
+local_y = -2
+shaders = ["scanline"]
+
+[[scene.nodes]]
+id = "shader_demo_buf"
+type = "buffer"
+name = "shader_demo"
+width = 40
+height = 1
+glyphset = "composite"
+dynamic = true
+parent = "main_buf"
+local_x = 4
+local_y = 1
+shaders = ["scanline", "chromatic"]
+shader_padding = 10

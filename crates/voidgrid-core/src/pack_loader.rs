@@ -76,10 +76,10 @@ impl PackLoader {
         rl: &mut RaylibHandle,
         thread: &RaylibThread
     ) -> Result<LoadedPack> {
-        let json = provider.read_string(manifest_path)
+        let content = provider.read_string(manifest_path)
             .context("Failed to read manifest file")?;
-        let manifest: ManifestDTO = serde_json::from_str(&json)
-            .context("Failed to parse manifest JSON")?;
+        let manifest: ManifestDTO = crate::assets::parse_config(manifest_path, &content)
+            .map_err(|e| anyhow::anyhow!("Failed to parse manifest: {}", e))?;
 
         // 1. Load atlas descriptors (and their PNGs)
         for (name, path) in &manifest.assets.atlases {

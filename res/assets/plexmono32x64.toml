@@ -1,0 +1,9 @@
+name = "plex"
+default_byte = 0
+
+[nodes."/"]
+source = { file = "assets/plexmono.png", w = 32, h = 64, cols = 19 }
+
+[[nodes."/".layers]]
+bytes = [32, 126]
+start = 0

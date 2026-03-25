@@ -1,0 +1,13 @@
+name = "c64"
+default_byte = 32
+
+[nodes."/"]
+source = { file = "assets/c64.png", w = 16, h = 16, cols = 16 }
+
+[[nodes."/".layers]]
+bytes = [64, 95]
+start = 0
+
+[[nodes."/".layers]]
+bytes = [32, 63]
+start = 32

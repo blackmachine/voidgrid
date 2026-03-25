@@ -3,6 +3,49 @@ use raylib::prelude::{Texture2D, Rectangle};
 use serde::Deserialize;
 
 // ============================================================================
+// Raw DTOs — deserialization layer supporting simplified TOML schema.
+// Allows `source` at the node level, with layers inheriting it.
+// ============================================================================
+
+/// Shared source definition at the node level (no `start`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct NodeSource {
+    pub file: String,
+    pub w: u32,
+    pub h: u32,
+    pub cols: u32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AtlasLayerRaw {
+    #[serde(flatten)]
+    pub mapping: LayerMapping,
+    /// Full source override (used in JSON-style definitions).
+    #[serde(default)]
+    pub source: Option<LayerSource>,
+    /// Start offset (used with node-level source in simplified TOML).
+    #[serde(default)]
+    pub start: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AtlasNodeRaw {
+    /// Optional node-level source — layers inherit this.
+    #[serde(default)]
+    pub source: Option<NodeSource>,
+    pub layers: Vec<AtlasLayerRaw>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AtlasDescriptorRaw {
+    pub name: String,
+    #[serde(default)]
+    pub default_byte: u32,
+    #[serde(default)]
+    pub nodes: HashMap<String, AtlasNodeRaw>,
+}
+
+// ============================================================================
 // Atlas — physical PNG sprite sheet (one per PNG file)
 // Used by the renderer for O(1) glyph source lookups.
 // ============================================================================
@@ -69,34 +112,68 @@ pub enum LayerMapping {
 
 /// A single layer within an atlas node.
 /// Layers are applied sequentially; later layers overwrite earlier ones.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AtlasLayer {
-    #[serde(flatten)]
     pub mapping: LayerMapping,
     pub source: LayerSource,
 }
 
 /// A node within the atlas descriptor's internal tree.
 /// Nodes represent addressable regions of the byte space.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AtlasNode {
     pub layers: Vec<AtlasLayer>,
 }
 
-/// Atlas descriptor parsed from JSON.
+/// Atlas descriptor parsed from JSON or TOML.
 /// Defines the virtual assembly of one or more PNG files into a byte→sprite mapping.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AtlasDescriptor {
     pub name: String,
-    #[serde(default)]
     pub default_byte: u32,
     /// Internal tree structure. Keys: "/" for root, "/:inverted" for variants, etc.
     /// If empty or absent, treated as single root node with identity mapping.
-    #[serde(default)]
     pub nodes: HashMap<String, AtlasNode>,
 }
 
 impl AtlasDescriptor {
+    /// Build from raw DTO, resolving layer sources from node-level defaults.
+    pub fn from_raw(raw: AtlasDescriptorRaw) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut nodes = HashMap::new();
+        for (key, raw_node) in raw.nodes {
+            let mut layers = Vec::new();
+            for raw_layer in raw_node.layers {
+                let source = if let Some(s) = raw_layer.source {
+                    // Layer has its own full source — use as-is
+                    s
+                } else if let Some(ref ns) = raw_node.source {
+                    // Inherit from node source + layer start
+                    LayerSource {
+                        file: ns.file.clone(),
+                        w: ns.w,
+                        h: ns.h,
+                        cols: ns.cols,
+                        start: raw_layer.start.unwrap_or(0),
+                    }
+                } else {
+                    return Err(format!(
+                        "Node '{}': layer has no source and node has no default source", key
+                    ).into());
+                };
+                layers.push(AtlasLayer {
+                    mapping: raw_layer.mapping,
+                    source,
+                });
+            }
+            nodes.insert(key, AtlasNode { layers });
+        }
+        Ok(Self {
+            name: raw.name,
+            default_byte: raw.default_byte,
+            nodes,
+        })
+    }
+
     /// Get the tile size from the first layer of the first node.
     /// All layers in a descriptor must share the same tile size.
     pub fn tile_size(&self) -> Option<(u32, u32)> {

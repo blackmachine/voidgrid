@@ -1,10 +1,20 @@
 use std::collections::HashMap;
 use raylib::prelude::*;
-use crate::atlas::{Atlas, AtlasDescriptor};
+use serde::de::DeserializeOwned;
+use crate::atlas::{Atlas, AtlasDescriptorRaw, AtlasDescriptor};
 use crate::palette::{Palette, PaletteConfig};
 use crate::shader::ShaderData;
 use crate::types::{AtlasKey, PaletteKey, ShaderKey};
 use crate::resource_pack::ResourceProvider;
+
+/// Parse a config string as JSON or TOML based on file extension.
+pub fn parse_config<T: DeserializeOwned>(path: &str, content: &str) -> Result<T, Box<dyn std::error::Error>> {
+    if path.ends_with(".toml") {
+        Ok(toml::from_str(content)?)
+    } else {
+        Ok(serde_json::from_str(content)?)
+    }
+}
 
 /// Load a single PNG sprite sheet as an Atlas.
 pub fn load_png(
@@ -40,13 +50,14 @@ pub fn load_png(
     Ok(Atlas { texture, tile_w, tile_h, cols })
 }
 
-/// Parse an atlas descriptor JSON file.
+/// Parse an atlas descriptor from JSON or TOML file.
 pub fn load_atlas_descriptor(
     provider: &mut dyn ResourceProvider,
     config_path: &str,
 ) -> Result<AtlasDescriptor, Box<dyn std::error::Error>> {
-    let json_str = provider.read_string(config_path)?;
-    let descriptor: AtlasDescriptor = serde_json::from_str(&json_str)?;
+    let content = provider.read_string(config_path)?;
+    let raw: AtlasDescriptorRaw = parse_config(config_path, &content)?;
+    let descriptor = AtlasDescriptor::from_raw(raw)?;
     Ok(descriptor)
 }
 
@@ -54,8 +65,8 @@ pub fn load_palette(
     provider: &mut dyn ResourceProvider,
     path: &str
 ) -> Result<Palette, Box<dyn std::error::Error>> {
-    let json_str = provider.read_string(path)?;
-    let config: PaletteConfig = serde_json::from_str(&json_str)?;
+    let content = provider.read_string(path)?;
+    let config: PaletteConfig = parse_config(path, &content)?;
     Ok(Palette::from_config(config))
 }
 

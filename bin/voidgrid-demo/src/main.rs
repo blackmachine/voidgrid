@@ -83,7 +83,7 @@ fn main() {
         &mut vg, 
         &mut hierarchy, 
         &mut provider, 
-        "manifest.json", 
+        "manifest.toml", 
         &mut rl, 
         &thread
     ).expect("Failed to load scene from manifest");

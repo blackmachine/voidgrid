@@ -1,0 +1,40 @@
+name = "crt"
+default_byte = 32
+
+[nodes."/"]
+source = { file = "assets/crt.png", w = 16, h = 16, cols = 32 }
+
+[[nodes."/".layers]]
+bytes = [64, 64]
+start = 0
+
+[[nodes."/".layers]]
+bytes = [65, 90]
+start = 1
+
+[[nodes."/".layers]]
+bytes = [97, 122]
+start = 65
+
+[[nodes."/".layers]]
+chars = "[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
+start = 27
+
+[nodes."/:inverted"]
+source = { file = "assets/crt.png", w = 16, h = 16, cols = 32 }
+
+[[nodes."/:inverted".layers]]
+bytes = [64, 64]
+start = 128
+
+[[nodes."/:inverted".layers]]
+bytes = [65, 90]
+start = 129
+
+[[nodes."/:inverted".layers]]
+bytes = [97, 122]
+start = 193
+
+[[nodes."/:inverted".layers]]
+chars = "[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?"
+start = 155
