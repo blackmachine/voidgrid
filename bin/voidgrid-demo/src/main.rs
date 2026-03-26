@@ -369,7 +369,7 @@ fn main() {
                 for y in 0..8u32 {
                     for x in 0..16u32 {
                         let color_idx = ((x + y + (current_time * 2.0) as u32) % 4) as usize;
-                        let ch = [0xB0u32, 0xB1, 0xB2, 0xDB][color_idx];
+                        let ch = [165, 167, 165, 167][color_idx];
                         let mut character = Character::new(ch, 0, colors[color_idx], colors[0]);
                         character.fg_ref = Some(color_idx as u16);
                         character.bg_ref = Some(0);

@@ -11,3 +11,7 @@ start = 0
 [[nodes."/".layers]]
 bytes = [32, 63]
 start = 32
+
+[[nodes."/".layers]]
+bytes = [127, 192]
+start = 64
