@@ -224,6 +224,35 @@ impl AssetManager {
             provider, rl, thread, file_path,
             source.w, source.h, source.cols,
         )?;
+
+        // Validate: check that all layers referencing this PNG
+        // don't address sprites beyond what the texture can hold.
+        let tex_w = atlas.texture.width as u32;
+        let tex_h = atlas.texture.height as u32;
+        let cols = source.cols;
+        let rows = tex_h / source.h;
+        let max_sprites = cols * rows;
+
+        for (node_name, node) in &descriptor.nodes {
+            for (li, layer) in node.layers.iter().enumerate() {
+                if layer.source.file != file_path { continue; }
+                let max_used = layer.byte_sprite_pairs().iter()
+                    .map(|&(_, sprite)| sprite)
+                    .max();
+                if let Some(max_sprite) = max_used {
+                    if max_sprite >= max_sprites {
+                        eprintln!(
+                            "WARNING: '{}' node '{}' layer {}: sprite {} exceeds atlas capacity \
+                             ({}x{} px, {}x{} tiles = {} sprites). \
+                             Missing glyphs will render as default.",
+                            file_path, node_name, li,
+                            max_sprite, tex_w, tex_h, cols, rows, max_sprites
+                        );
+                    }
+                }
+            }
+        }
+
         let key = self.atlases.insert(atlas);
         self.cache.pngs.insert(file_path.to_string(), key);
         Ok(key)
@@ -341,6 +370,10 @@ impl AssetManager {
                     if (dest_byte as usize) < 65536 {
                         let global_id = self.global_registry.register_glyph(atlas_key, sprite);
                         glyphset.luts[variant_id as usize][dest_byte as usize] = global_id;
+                        // TODO: remove — temporary debug trace for Unicode glyph LUT population
+                        if dest_byte == 0xF8 {
+                            eprintln!("[DEBUG LUT] ø → variant={}, sprite={}, global_id={}", variant_id, sprite, global_id);
+                        }
                     }
                 }
             }

@@ -46,18 +46,19 @@ fn update(events) {
             }
             set_fg(255, 64, 0, 255);
             set_cursor(cell.x, cell.y);
-            write_text("+");
+            write_text("×");
         }
     }
 
     
     
+    set_fg(192, 0, 0, 255);
+    set_bg(192, 192, 192, 255);
+    set_cursor(15, 6);
+    write_text(`Locus × Tenebris`, `bold`);
+    set_cursor(15, 7);
     set_fg(64, 48, 32, 255);
-    set_bg(192, 192, 255, 255);
-    set_cursor(10, 1);
-    write_text(`Oh hi Mark`, `bold`);
-    set_cursor(10, 2);
-    write_text(`It's you`, `thin`);
+    write_text(`The darkest place of your soul.`, `thin`);
     set_bg(0, 0, 0, 0);
 }
 }

@@ -2,7 +2,6 @@
 use raylib::prelude::Color;
 use crate::grids::Grids;
 use crate::types::{BufferKey, Character, Blend, Transform};
-use crate::text_ops::TextOps;
 
 #[derive(Debug, Clone)]
 pub enum Action {
@@ -92,11 +91,26 @@ impl TerminalState {
             }
             Action::PrintString(text) => {
                 if let Some(key) = self.active_buffer {
-                    grids.print(key)
-                        .at(self.cursor_x, self.cursor_y)
-                        .color(self.fg_color, self.bg_color)
-                        .write(text.as_ref());
-                    self.cursor_x += text.chars().count() as u32;
+                    let start_x = self.cursor_x;
+                    for ch in text.chars() {
+                        if ch == '\n' {
+                            self.cursor_y += 1;
+                            self.cursor_x = start_x;
+                        } else {
+                            grids.set_char(
+                                key,
+                                self.cursor_x,
+                                self.cursor_y,
+                                Character::full(
+                                    ch as u32, self.variant_id,
+                                    self.fg_color, self.bg_color,
+                                    Blend::Alpha, Blend::Alpha,
+                                    Transform::default(), None,
+                                ),
+                            );
+                            self.cursor_x += 1;
+                        }
+                    }
                 }
             }
             Action::ClearBuffer(name) => {

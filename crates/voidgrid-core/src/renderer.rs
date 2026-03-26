@@ -686,6 +686,13 @@ impl Renderer {
                         .unwrap_or(glyphset.default_global_id);
 
                     let (atlas_key, physical_glyph) = grids.assets.global_registry.entries[global_id as usize];
+                    // TODO: remove — temporary debug trace for Unicode glyph rendering
+                    if ch.code == 0xF8 {
+                        static LOGGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                        if !LOGGED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            eprintln!("[DEBUG render] ø: code={}, variant={}, global_id={}, physical_glyph={}", ch.code, ch.variant_id, global_id, physical_glyph);
+                        }
+                    }
                     let atlas = &grids.assets.atlases[atlas_key];
                     let (src, _, _) = atlas.get_glyph_source(physical_glyph);
                     let tex_id = atlas.texture.id;

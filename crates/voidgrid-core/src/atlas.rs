@@ -16,10 +16,20 @@ pub struct NodeSource {
     pub cols: u32,
 }
 
+/// Raw layer DTO — avoids `#[serde(flatten)]` which breaks with
+/// `#[serde(untagged)]` enums in the `toml` crate.
+/// Mapping fields are explicit optionals; exactly one must be present.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AtlasLayerRaw {
-    #[serde(flatten)]
-    pub mapping: LayerMapping,
+    /// Range mapping: [from, to]
+    #[serde(default)]
+    pub bytes: Option<[u32; 2]>,
+    /// Chars mapping: Unicode characters
+    #[serde(default)]
+    pub chars: Option<String>,
+    /// Entries mapping: explicit [byte, sprite] pairs
+    #[serde(default)]
+    pub entries: Option<Vec<[u32; 2]>>,
     /// Full source override (used in JSON-style definitions).
     #[serde(default)]
     pub source: Option<LayerSource>,
@@ -143,11 +153,23 @@ impl AtlasDescriptor {
         for (key, raw_node) in raw.nodes {
             let mut layers = Vec::new();
             for raw_layer in raw_node.layers {
+                // Resolve mapping from explicit fields
+                let mapping = if let Some(bytes) = raw_layer.bytes {
+                    LayerMapping::Range { bytes }
+                } else if let Some(chars) = raw_layer.chars {
+                    LayerMapping::Chars { chars }
+                } else if let Some(entries) = raw_layer.entries {
+                    LayerMapping::Entries { entries }
+                } else {
+                    return Err(format!(
+                        "Node '{}': layer has no mapping (bytes, chars, or entries)", key
+                    ).into());
+                };
+
+                // Resolve source: layer-level overrides node-level
                 let source = if let Some(s) = raw_layer.source {
-                    // Layer has its own full source — use as-is
                     s
                 } else if let Some(ref ns) = raw_node.source {
-                    // Inherit from node source + layer start
                     LayerSource {
                         file: ns.file.clone(),
                         w: ns.w,
@@ -160,10 +182,8 @@ impl AtlasDescriptor {
                         "Node '{}': layer has no source and node has no default source", key
                     ).into());
                 };
-                layers.push(AtlasLayer {
-                    mapping: raw_layer.mapping,
-                    source,
-                });
+
+                layers.push(AtlasLayer { mapping, source });
             }
             nodes.insert(key, AtlasNode { layers });
         }
@@ -236,10 +256,17 @@ impl AtlasLayer {
                     .collect()
             }
             LayerMapping::Chars { chars } => {
-                chars.chars()
+                let pairs: Vec<(u32, u32)> = chars.chars()
                     .enumerate()
                     .map(|(i, ch)| (ch as u32, self.source.start + i as u32))
-                    .collect()
+                    .collect();
+                // TODO: remove — temporary debug trace for Unicode glyph mapping
+                for &(code, sprite) in &pairs {
+                    if code == 0xF8 { // ø
+                        eprintln!("[DEBUG atlas] chars layer: ø (U+00F8) → sprite {}, source.start={}", sprite, self.source.start);
+                    }
+                }
+                pairs
             }
             LayerMapping::Entries { entries } => {
                 entries.iter()
