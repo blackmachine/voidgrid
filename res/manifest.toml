@@ -6,6 +6,9 @@ c64 = "assets/c64.toml"
 tx2 = "assets/tx02.toml"
 plex = "assets/plexmono32x64.toml"
 
+[assets.palettes]
+gameboy = "assets/gameboy.toml"
+
 [assets.scripts]
 pack_ui = "assets/ui.rhai"
 demo_d = "assets/demo.rhai"
@@ -84,6 +87,22 @@ parent = "main_buf"
 anchor = "BottomLeft"
 local_x = 2
 local_y = -2
+shaders = ["scanline"]
+
+[[scene.nodes]]
+id = "gb_buf"
+type = "buffer"
+name = "gb"
+width = 16
+height = 8
+glyphset = "composite"
+z_index = 5
+dynamic = true
+parent = "main_buf"
+anchor = "TopRight"
+local_x = -18
+local_y = 2
+palette = "gameboy"
 shaders = ["scanline"]
 
 [[scene.nodes]]

@@ -96,6 +96,7 @@ fn main() {
     let tx_buf = pack.buffers["tx_buf"];
     let drop_zone_buf = pack.buffers["drop_zone_buf"];
     let shader_demo_buf = pack.buffers["shader_demo_buf"];
+    let gb_buf = pack.buffers["gb_buf"];
 
     // 4. Получаем размеры тайла из корневого буфера для настройки окна
     let main_glyphset = vg.grids.get(main_buf).unwrap().glyphset();
@@ -235,6 +236,7 @@ fn main() {
         //
         vg.grids.clear_buffer(drop_zone_buf);
         vg.grids.clear_buffer(shader_demo_buf);
+        vg.grids.clear_buffer(gb_buf);
 
         // --- Обработка window chrome ---
         if chrome.update(&mut rl) {
@@ -348,6 +350,38 @@ fn main() {
 ////////////////////////////////////////////////////////
 
 
+        }
+
+        // --- Gameboy palette demo ---
+        {
+            let gb_pal = vg.terminal.palette_map.get("gameboy").copied();
+            // Извлекаем цвета палитры заранее, чтобы не держать immutable borrow
+            let gb_colors: Option<[Color; 4]> = gb_pal.and_then(|pk| {
+                let pal = vg.grids.assets.palette(pk)?;
+                Some([
+                    pal.get(0).unwrap_or(Color::BLACK),
+                    pal.get(1).unwrap_or(Color::BLACK),
+                    pal.get(2).unwrap_or(Color::WHITE),
+                    pal.get(3).unwrap_or(Color::WHITE),
+                ])
+            });
+            if let Some(colors) = gb_colors {
+                for y in 0..8u32 {
+                    for x in 0..16u32 {
+                        let color_idx = ((x + y + (current_time * 2.0) as u32) % 4) as usize;
+                        let ch = [0xB0u32, 0xB1, 0xB2, 0xDB][color_idx];
+                        let mut character = Character::new(ch, 0, colors[color_idx], colors[0]);
+                        character.fg_ref = Some(color_idx as u16);
+                        character.bg_ref = Some(0);
+                        vg.grids.set_char(gb_buf, x, y, character);
+                    }
+                }
+                vg.grids
+                    .print(gb_buf)
+                    .at(4, 3)
+                    .color(colors[3], colors[0])
+                    .write("GAME BOY");
+            }
         }
 
         // --- Буфер с шейдером ---
