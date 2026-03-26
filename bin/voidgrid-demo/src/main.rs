@@ -88,8 +88,9 @@ fn main() {
         &thread
     ).expect("Failed to load scene from manifest");
 
-    // 3. Извлекаем ключи буферов для использования в главном цикле
+    // 3. Извлекаем ключи буферов и палитр для использования в главном цикле
     vg.terminal.register_buffers(pack.buffers.clone());
+    vg.terminal.register_palettes(pack.palettes.clone());
     let main_buf = pack.buffers["main_buf"];
     let back_buf = pack.buffers["back_buf"];
     let tx_buf = pack.buffers["tx_buf"];
@@ -289,6 +290,7 @@ fn main() {
         // --- Execute Rhai Script Frame ---
         script_engine.sync_screen_positions(&prev_render_list, &vg.grids, &pack.buffers);
         script_engine.sync_state(&vg.grids, &pack.buffers);
+        script_engine.sync_palette_data(&vg.terminal.palette_map, &vg.grids.assets);
         script_engine.run_update(current_time, &vg.events.frame_events);
 
         vg.grids

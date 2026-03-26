@@ -74,6 +74,36 @@ impl Palette {
             .and_then(|&idx| self.colors.get(idx))
             .map(|c| c.to_color())
     }
+
+    pub fn index_of_name(&self, name: &str) -> Option<usize> {
+        self.name_index.get(name).copied()
+    }
+
+    pub fn find_by_rgba(&self, r: u8, g: u8, b: u8, a: u8) -> Option<usize> {
+        self.colors.iter().position(|c| c.r == r && c.g == g && c.b == b && c.a == a)
+    }
+
+    pub fn set_color(&mut self, index: usize, color: PaletteColor) {
+        if index < self.colors.len() {
+            // Remove old name from index if it had one
+            if let Some(ref old_name) = self.colors[index].name {
+                self.name_index.remove(old_name);
+            }
+            // Add new name to index
+            if let Some(ref name) = color.name {
+                self.name_index.insert(name.clone(), index);
+            }
+            self.colors[index] = color;
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.colors.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.colors.is_empty()
+    }
     
     pub fn to_config(&self) -> PaletteConfig {
         PaletteConfig {

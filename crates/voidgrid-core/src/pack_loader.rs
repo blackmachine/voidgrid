@@ -9,7 +9,7 @@ use crate::VoidGrid;
 use crate::asset_manager::ComposeRule;
 use crate::hierarchy::{Hierarchy, Anchor, NodeKey};
 use crate::resource_pack::ResourceProvider;
-use crate::types::{BufferKey, ShaderKey, GlyphsetKey};
+use crate::types::{BufferKey, ShaderKey, GlyphsetKey, PaletteKey};
 
 #[derive(Deserialize)]
 struct ManifestDTO {
@@ -26,6 +26,8 @@ struct ManifestDTO {
 struct AssetConfigDTO {
     atlases: HashMap<String, String>,
     shaders: HashMap<String, String>,
+    #[serde(default)]
+    palettes: HashMap<String, String>,
     #[serde(default)]
     scripts: HashMap<String, String>,
 }
@@ -55,6 +57,7 @@ struct NodeDTO {
     anchor: Option<String>,
     local_x: Option<i32>,
     local_y: Option<i32>,
+    palette: Option<String>,
     shader: Option<String>,
     shaders: Option<Vec<String>>,
     shader_padding: Option<u32>,
@@ -62,6 +65,7 @@ struct NodeDTO {
 
 pub struct LoadedPack {
     pub buffers: HashMap<String, BufferKey>,
+    pub palettes: HashMap<String, PaletteKey>,
     pub scripts: HashMap<String, String>,
 }
 
@@ -94,7 +98,15 @@ impl PackLoader {
             }
         }
 
-        // 2. Load shaders
+        // 2. Load palettes
+        let mut palette_map: HashMap<String, PaletteKey> = HashMap::new();
+        for (name, path) in &manifest.assets.palettes {
+            let key = vg.grids.assets.load_palette(provider, path)
+                .map_err(|e| anyhow::anyhow!("Failed to load palette '{}': {}", name, e))?;
+            palette_map.insert(name.clone(), key);
+        }
+
+        // 3. Load shaders
         let mut shader_map: HashMap<String, ShaderKey> = HashMap::new();
         for (name, path) in &manifest.assets.shaders {
             let key = vg.grids.assets.load_shader(provider, rl, thread, path)
@@ -102,12 +114,12 @@ impl PackLoader {
             shader_map.insert(name.clone(), key);
         }
 
-        // 3. Build mount tree
+        // 4. Build mount tree
         for (mount_path, descriptor_name) in &manifest.mounts {
             vg.grids.assets.tree.mount(mount_path, descriptor_name);
         }
 
-        // 4. Compose glyphsets
+        // 5. Compose glyphsets
         let mut glyphset_map: HashMap<String, GlyphsetKey> = HashMap::new();
         for (name, config) in &manifest.glyphsets {
             let gs_key = vg.grids.assets.compose_glyphset(name, &config.compose)
@@ -115,7 +127,7 @@ impl PackLoader {
             glyphset_map.insert(name.clone(), gs_key);
         }
 
-        // 5. Build scene
+        // 6. Build scene
         let mut node_keys: HashMap<String, NodeKey> = HashMap::new();
         let mut buffer_keys: HashMap<String, BufferKey> = HashMap::new();
 
@@ -127,6 +139,18 @@ impl PackLoader {
             if let Some(z) = node.z_index { buf_builder = buf_builder.z_index(z); }
             if let Some(d) = node.dynamic { buf_builder = buf_builder.dynamic(d); }
             let buf_key = buf_builder.build();
+
+            // Attach palette to buffer if specified
+            if let Some(pal_name) = &node.palette {
+                if let Some(&pal_key) = palette_map.get(pal_name) {
+                    if let Some(buf) = vg.grids.get_mut(buf_key) {
+                        buf.set_palette(Some(pal_key));
+                    }
+                } else {
+                    eprintln!("Warning: Palette '{}' not found for node '{}'.", pal_name, node.name);
+                }
+            }
+
             buffer_keys.insert(node.id.clone(), buf_key);
 
             let mut builder = hierarchy.attach(Some(buf_key));
@@ -184,7 +208,7 @@ impl PackLoader {
             }
         }
 
-        // 6. Load scripts
+        // 7. Load scripts
         let mut loaded_scripts = HashMap::new();
         for (name, path) in &manifest.assets.scripts {
             let code = provider.read_string(path)
@@ -194,6 +218,7 @@ impl PackLoader {
 
         Ok(LoadedPack {
             buffers: buffer_keys,
+            palettes: palette_map,
             scripts: loaded_scripts,
         })
     }

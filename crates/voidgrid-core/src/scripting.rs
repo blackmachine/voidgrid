@@ -27,6 +27,7 @@ pub struct ScriptEngine {
     buffer_sizes: Arc<Mutex<HashMap<String, (u32, u32)>>>,
     buffer_data: Arc<Mutex<HashMap<String, BufferSnapshot>>>,
     buffer_screen: Arc<Mutex<HashMap<String, ScreenInfo>>>,
+    palette_data: Arc<Mutex<HashMap<String, Vec<(u8, u8, u8, u8, Option<String>)>>>>,
     /// Скрипты, в которых нет функции update (чтобы не спамить ошибкой каждый кадр)
     missing_update: HashSet<String>,
     /// Скрипты, в которых нет функции init
@@ -155,6 +156,107 @@ impl ScriptEngine {
             q_z.lock().unwrap().push(Action::SetBufferZ(name.to_string(), z as i32));
         });
 
+        // --- Palette functions ---
+
+        let q_fg_idx = action_queue.clone();
+        engine.register_fn("set_fg_indexed", move |index: i64| {
+            q_fg_idx.lock().unwrap().push(Action::SetFgIndexed(index as u16));
+        });
+
+        let q_bg_idx = action_queue.clone();
+        engine.register_fn("set_bg_indexed", move |index: i64| {
+            q_bg_idx.lock().unwrap().push(Action::SetBgIndexed(index as u16));
+        });
+
+        let q_buf_pal = action_queue.clone();
+        engine.register_fn("set_buffer_palette", move |buf_name: rhai::ImmutableString, pal_name: rhai::ImmutableString| {
+            q_buf_pal.lock().unwrap().push(Action::SetBufferPalette(buf_name.to_string(), pal_name.to_string()));
+        });
+
+        let q_pal_set = action_queue.clone();
+        engine.register_fn("palette_set_color", move |pal_name: rhai::ImmutableString, index: i64, r: i64, g: i64, b: i64, a: i64| {
+            q_pal_set.lock().unwrap().push(Action::PaletteSetColor(pal_name.to_string(), index as u16, r as u8, g as u8, b as u8, a as u8));
+        });
+
+        let q_pal_cyc = action_queue.clone();
+        engine.register_fn("palette_cycle", move |pal_name: rhai::ImmutableString, start: i64, end: i64| {
+            q_pal_cyc.lock().unwrap().push(Action::PaletteCycle(pal_name.to_string(), start as u16, end as u16));
+        });
+
+        // Palette query functions need shared data (like buffer_sizes pattern)
+        let palette_data: Arc<Mutex<HashMap<String, Vec<(u8, u8, u8, u8, Option<String>)>>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let pd_get = palette_data.clone();
+        engine.register_fn("palette_get_color", move |pal_name: rhai::ImmutableString, index: i64| -> Dynamic {
+            let data = pd_get.lock().unwrap();
+            if let Some(colors) = data.get(pal_name.as_str()) {
+                if let Some(&(r, g, b, a, _)) = colors.get(index as usize) {
+                    let mut map = Map::new();
+                    map.insert("r".into(), Dynamic::from(r as i64));
+                    map.insert("g".into(), Dynamic::from(g as i64));
+                    map.insert("b".into(), Dynamic::from(b as i64));
+                    map.insert("a".into(), Dynamic::from(a as i64));
+                    return Dynamic::from_map(map);
+                }
+            }
+            Dynamic::UNIT
+        });
+
+        let pd_name = palette_data.clone();
+        engine.register_fn("palette_index_of", move |pal_name: rhai::ImmutableString, color_name: rhai::ImmutableString| -> Dynamic {
+            let data = pd_name.lock().unwrap();
+            if let Some(colors) = data.get(pal_name.as_str()) {
+                for (i, (_, _, _, _, ref name)) in colors.iter().enumerate() {
+                    if let Some(n) = name {
+                        if n == color_name.as_str() {
+                            return Dynamic::from(i as i64);
+                        }
+                    }
+                }
+            }
+            Dynamic::from(-1_i64)
+        });
+
+        let pd_len = palette_data.clone();
+        engine.register_fn("palette_len", move |pal_name: rhai::ImmutableString| -> i64 {
+            let data = pd_len.lock().unwrap();
+            data.get(pal_name.as_str()).map(|c| c.len() as i64).unwrap_or(0)
+        });
+
+        let pd_find = palette_data.clone();
+        engine.register_fn("palette_find_rgba", move |pal_name: rhai::ImmutableString, r: i64, g: i64, b: i64, a: i64| -> Dynamic {
+            let data = pd_find.lock().unwrap();
+            if let Some(colors) = data.get(pal_name.as_str()) {
+                let (tr, tg, tb, ta) = (r as u8, g as u8, b as u8, a as u8);
+                for (i, &(cr, cg, cb, ca, _)) in colors.iter().enumerate() {
+                    if cr == tr && cg == tg && cb == tb && ca == ta {
+                        return Dynamic::from(i as i64);
+                    }
+                }
+            }
+            Dynamic::from(-1_i64)
+        });
+
+        let pd_by_name = palette_data.clone();
+        engine.register_fn("palette_get_by_name", move |pal_name: rhai::ImmutableString, color_name: rhai::ImmutableString| -> Dynamic {
+            let data = pd_by_name.lock().unwrap();
+            if let Some(colors) = data.get(pal_name.as_str()) {
+                for &(r, g, b, a, ref name) in colors.iter() {
+                    if let Some(n) = name {
+                        if n == color_name.as_str() {
+                            let mut map = Map::new();
+                            map.insert("r".into(), Dynamic::from(r as i64));
+                            map.insert("g".into(), Dynamic::from(g as i64));
+                            map.insert("b".into(), Dynamic::from(b as i64));
+                            map.insert("a".into(), Dynamic::from(a as i64));
+                            return Dynamic::from_map(map);
+                        }
+                    }
+                }
+            }
+            Dynamic::UNIT
+        });
+
         // --- Query functions ---
 
         engine.register_fn("get_system_time", || -> rhai::ImmutableString {
@@ -240,6 +342,7 @@ impl ScriptEngine {
             buffer_sizes,
             buffer_data,
             buffer_screen,
+            palette_data,
             missing_update: HashSet::new(),
             missing_init: HashSet::new(),
             logged_errors: HashMap::new(),
@@ -376,6 +479,24 @@ impl ScriptEngine {
                         screen.insert(name.to_string(), (item.screen_x, item.screen_y, tw as i32, th as i32));
                     }
                 }
+            }
+        }
+    }
+
+    /// Синхронизирует данные палитр для чтения из скриптов.
+    pub fn sync_palette_data(
+        &self,
+        palette_map: &HashMap<String, crate::types::PaletteKey>,
+        assets: &crate::asset_manager::AssetManager,
+    ) {
+        let mut data = self.palette_data.lock().unwrap();
+        data.clear();
+        for (name, &key) in palette_map {
+            if let Some(pal) = assets.palette(key) {
+                let colors: Vec<(u8, u8, u8, u8, Option<String>)> = pal.colors.iter()
+                    .map(|c| (c.r, c.g, c.b, c.a, c.name.clone()))
+                    .collect();
+                data.insert(name.clone(), colors);
             }
         }
     }

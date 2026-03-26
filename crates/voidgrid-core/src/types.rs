@@ -197,6 +197,8 @@ pub struct Character {
     pub variant_id: u8,
     pub fcolor: Color,
     pub bcolor: Color,
+    pub fg_ref: Option<u16>,
+    pub bg_ref: Option<u16>,
     pub fg_blend: Blend,
     pub bg_blend: Blend,
     pub transform: Transform,
@@ -207,11 +209,11 @@ impl Character {
     pub fn new(code: u32, variant_id: u8, fcolor: Color, bcolor: Color) -> Self {
         Self::full(code, variant_id, fcolor, bcolor, Blend::Alpha, Blend::Alpha, Transform::default(), None)
     }
-    
+
     pub fn full(code: u32, variant_id: u8, fcolor: Color, bcolor: Color, fg_blend: Blend, bg_blend: Blend, transform: Transform, mask: Option<Mask>) -> Self {
-        Self { code, variant_id, fcolor, bcolor, fg_blend, bg_blend, transform, mask }
+        Self { code, variant_id, fcolor, bcolor, fg_ref: None, bg_ref: None, fg_blend, bg_blend, transform, mask }
     }
-    
+
     pub fn blank(default_code: u32) -> Self {
         Self::new(default_code, 0, Color::DARKGRAY, Color::BLANK)
     }

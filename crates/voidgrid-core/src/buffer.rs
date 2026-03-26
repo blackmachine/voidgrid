@@ -1,4 +1,5 @@
-use crate::types::{GlyphsetKey, Character};
+use crate::types::{GlyphsetKey, PaletteKey, Character};
+use crate::palette::Palette;
 
 pub struct Buffer {
     pub name: String,
@@ -11,6 +12,7 @@ pub struct Buffer {
     pub default_variant_id: u8,
     pub(crate) data: Vec<Character>,
     pub(crate) glyphset: GlyphsetKey,
+    pub(crate) palette: Option<PaletteKey>,
     pub(crate) dirty: bool,
 }
 
@@ -37,6 +39,7 @@ impl Buffer {
             data: vec![fill; size],
             dirty: true,
             glyphset,
+            palette: None,
         }
     }
 
@@ -75,5 +78,40 @@ impl Buffer {
     pub fn set_glyphset(&mut self, glyphset: GlyphsetKey) {
         self.dirty = true;
         self.glyphset = glyphset;
+    }
+
+    pub fn palette(&self) -> Option<PaletteKey> {
+        self.palette
+    }
+
+    pub fn set_palette(&mut self, palette: Option<PaletteKey>) {
+        self.palette = palette;
+    }
+
+    /// Обновляет fcolor/bcolor для всех ячеек с palette-ссылками.
+    /// Вызывать после изменения палитры (cycle, set_color, смена палитры буфера).
+    pub fn refresh_palette_colors(&mut self, palette: &Palette) {
+        let mut changed = false;
+        for ch in &mut self.data {
+            if let Some(idx) = ch.fg_ref {
+                if let Some(c) = palette.get(idx as usize) {
+                    if ch.fcolor != c {
+                        ch.fcolor = c;
+                        changed = true;
+                    }
+                }
+            }
+            if let Some(idx) = ch.bg_ref {
+                if let Some(c) = palette.get(idx as usize) {
+                    if ch.bcolor != c {
+                        ch.bcolor = c;
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if changed {
+            self.dirty = true;
+        }
     }
 }
