@@ -295,9 +295,9 @@ fn main() {
                 .print(tx_buf)
                 .at(15, 10)
                 .fg(Color::new(255, 255, 255, 255))
-                .bg(Color::new(0, 64, 0, 255))
+                .bg(Color::new(32, 32, 32, 255))
                 .writeln(("Text block", "bold"))
-                .writeln(("This is the text block,\nplease enjoy."));
+                .writeln(("This is the text block,\nplease enjoy.", "thin"));
 
         for action in script_engine.take_actions() {
             vg.terminal.apply_action(&mut vg.grids, action);

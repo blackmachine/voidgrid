@@ -1,0 +1,35 @@
+name = "tx2"
+default_byte = 0
+
+[nodes."/"]
+source = { file = "assets/tx02_regular.png", w = 22, h = 35, cols = 16 }
+
+[[nodes."/".layers]]
+bytes = [32, 126]
+start = 0
+
+[[nodes."/".layers]]
+chars = "§↑↗→↘↓↙←↖↔↕≡+−×÷=≠><≥≤±≈∧∨¬■▲▶▼◀△▷▽◁◌◊∞·•º«»‹›₿$€₺₽₹£¥¦†‡¶øæ"
+start = 95
+
+[nodes."/:thin"]
+source = { file = "assets/tx02_thin.png", w = 22, h = 35, cols = 16 }
+
+[[nodes."/:thin".layers]]
+bytes = [32, 126]
+start = 0
+
+[[nodes."/:thin".layers]]
+chars = "§↑↗→↘↓↙←↖↔↕≡+−×÷=≠><≥≤±≈∧∨¬■▲▶▼◀△▷▽◁◌◊∞·•º«»‹›₿$€₺₽₹£¥¦†‡¶øæ"
+start = 95
+
+[nodes."/:bold"]
+source = { file = "assets/tx02_bold.png", w = 22, h = 35, cols = 16 }
+
+[[nodes."/:bold".layers]]
+bytes = [32, 126]
+start = 0
+
+[[nodes."/:bold".layers]]
+chars = "§↑↗→↘↓↙←↖↔↕≡+−×÷=≠><≥≤±≈∧∨¬■▲▶▼◀△▷▽◁◌◊∞·•º«»‹›₿$€₺₽₹£¥¦†‡¶øæ"
+start = 95

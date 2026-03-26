@@ -3,9 +3,7 @@ version = "1.0"
 
 [assets.atlases]
 c64 = "assets/c64.toml"
-tx2 = "assets/tx02_regular.toml"
-tx2b = "assets/tx02_bold.toml"
-tx2t = "assets/tx02_thin.toml"
+tx2 = "assets/tx02.toml"
 plex = "assets/plexmono32x64.toml"
 
 [assets.scripts]
@@ -20,8 +18,6 @@ bloom = "assets/glow.fs"
 [mounts]
 "/fonts/c64" = "c64"
 "/fonts/tx2" = "tx2"
-"/fonts/tx2b" = "tx2b"
-"/fonts/tx2t" = "tx2t"
 "/fonts/plex" = "plex"
 
 [glyphsets.flexmono]
@@ -32,8 +28,7 @@ compose = [
 [glyphsets.tx]
 compose = [
     { node = "/fonts/tx2" },
-    { node = "/fonts/tx2b", as_variant = "bold" },
-    { node = "/fonts/tx2t", as_variant = "thin" },
+
 ]
 
 [glyphsets.composite]
