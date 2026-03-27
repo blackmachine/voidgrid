@@ -308,6 +308,7 @@ pub struct Renderer {
     loc_use_mask: i32,
     loc_bg_color: i32,
     post_process_texture: Option<RenderTexture2D>,
+    pub vfx: Option<crate::vfx::VfxPipeline>,
     buffer_shaders: HashMap<BufferKey, BufferShaderData>,
     buffer_batches: HashMap<BufferKey, Vec<Batch>>,
     default_material: Option<Material>,
@@ -327,6 +328,7 @@ impl Renderer {
             loc_use_mask: -1,
             loc_bg_color: -1,
             post_process_texture: None,
+            vfx: None,
             buffer_shaders: HashMap::new(),
             buffer_batches: HashMap::new(),
             default_material: None,
@@ -503,6 +505,12 @@ impl Renderer {
 
                 shader_data.final_texture_idx = read_idx;
 
+                // // TODO: per-buffer VFX (variant 1)
+                // if let Some(ref mut vfx) = self.vfx {
+                //     let final_tex = &shader_data.textures[shader_data.final_texture_idx];
+                //     vfx.apply(rl, thread, final_tex);
+                // }
+
                 // Возвращаем данные на место
                 self.buffer_shaders.insert(buffer_key, shader_data);
             }
@@ -515,9 +523,33 @@ impl Renderer {
         grids: &mut Grids,
         render_list: &[RenderItem],
     ) {
+        // If VFX produced output, blit it instead of normal scene draw
+        if let Some(ref vfx) = self.vfx {
+            if vfx.enabled {
+                let rt = vfx.output_texture();
+                let w = rt.texture().width as f32;
+                let h = rt.texture().height as f32;
+                d.draw_texture_rec(
+                    rt.texture(),
+                    Rectangle::new(0.0, h, w, -h),
+                    Vector2::new(0.0, 0.0),
+                    Color::WHITE,
+                );
+                return;
+            }
+        }
+        self.draw_scene(d, grids, render_list);
+    }
+
+    fn draw_scene<D: RaylibDraw>(
+        &mut self,
+        d: &mut D,
+        grids: &mut Grids,
+        render_list: &[RenderItem],
+    ) {
         for item in render_list {
             if self.buffer_shaders.contains_key(&item.buffer) {
-                self.draw_buffer_with_shader(d, grids, item.buffer, item.screen_x, item.screen_y);
+                self.draw_buffer_with_shader(d, item.buffer, item.screen_x, item.screen_y);
             } else {
                 self.draw_single_buffer(d, grids, item.buffer, item.screen_x, item.screen_y, item.opacity, false);
             }
@@ -562,11 +594,47 @@ impl Renderer {
         }
     }
 
+    /// Render the full scene into a texture, apply VFX, store result.
+    /// Call this after render_offscreen(), before draw().
+    pub fn render_vfx(
+        &mut self,
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        grids: &mut Grids,
+        render_list: &[RenderItem],
+        screen_w: u32,
+        screen_h: u32,
+        clear_color: Color,
+    ) {
+        if !self.vfx.as_ref().map_or(false, |v| v.enabled) {
+            return;
+        }
+
+        // Ensure scene texture exists at correct size
+        self.prepare_post_process(rl, thread, screen_w, screen_h);
+
+        // Draw full scene into post_process_texture
+        // (take() avoids borrow conflict with self.draw_scene)
+        if let Some(mut rt) = self.post_process_texture.take() {
+            {
+                let mut td = rl.begin_texture_mode(thread, &mut rt);
+                td.clear_background(clear_color);
+                self.draw_scene(&mut td, grids, render_list);
+            }
+            self.post_process_texture = Some(rt);
+        }
+
+        // Apply VFX to the scene texture
+        if let (Some(ref mut vfx), Some(ref rt)) = (&mut self.vfx, &self.post_process_texture) {
+            vfx.apply(rl, thread, rt);
+        }
+    }
+
     pub fn post_process_texture_mut(&mut self) -> Option<&mut RenderTexture2D> {
         self.post_process_texture.as_mut()
     }
 
-    fn draw_buffer_with_shader(&mut self, d: &mut RaylibDrawHandle, _grids: &mut Grids, buffer: BufferKey, screen_x: i32, screen_y: i32) {
+    fn draw_buffer_with_shader<D: RaylibDraw>(&mut self, d: &mut D, buffer: BufferKey, screen_x: i32, screen_y: i32) {
         if let Some(shader_data) = self.buffer_shaders.get(&buffer) {
             let padding = shader_data.padding as i32;
             let final_idx = shader_data.final_texture_idx;

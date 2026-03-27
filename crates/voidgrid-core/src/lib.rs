@@ -20,6 +20,7 @@ pub mod asset_manager;
 pub mod resource_pack;
 pub mod pack_loader;
 pub mod virtual_tree;
+pub mod vfx;
 pub use voidgrid_vtp as vtp;
 
 use raylib::prelude::*;
@@ -69,6 +70,20 @@ impl VoidGrid {
     /// РџСЂРµРґРІР°СЂРёС‚РµР»СЊРЅС‹Р№ СЂРµРЅРґРµСЂ (РґР»СЏ С€РµР№РґРµСЂРѕРІ)
     pub fn render_offscreen(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, render_list: &[RenderItem]) {
         self.renderer.render_offscreen(rl, thread, &mut self.grids, render_list);
+    }
+
+    /// VFX pass: render scene to texture, apply bloom, etc.
+    /// Call after render_offscreen(), before draw().
+    pub fn render_vfx(
+        &mut self,
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        render_list: &[RenderItem],
+        screen_w: u32,
+        screen_h: u32,
+        clear_color: Color,
+    ) {
+        self.renderer.render_vfx(rl, thread, &mut self.grids, render_list, screen_w, screen_h, clear_color);
     }
 }
 

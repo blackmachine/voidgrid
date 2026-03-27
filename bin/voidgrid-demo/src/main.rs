@@ -110,6 +110,35 @@ fn main() {
     // Восстанавливаем доступ к шейдеру для анимации в цикле
     let chromatic_shader = vg.grids.assets.load_shader(&mut provider, &mut rl, &thread, "assets/chromatic.fs").expect("Failed to load chromatic shader");
 
+    // ========================================================================
+    // VFX: Bloom (Jimenez14 dual-filter)
+    // ========================================================================
+    // Инициализация VFX пайплайна — загружает шейдер vfx_bloom.fs и
+    // создаёт цепочку mip-текстур для downsample/upsample.
+    match voidgrid::vfx::VfxPipeline::new(&mut provider, &mut rl, &thread, window_w, window_h) {
+        Ok(mut vfx) => {
+            // Настройки псевдо-линеаризации и блюма — крутить по вкусу:
+            vfx.settings.gamma = 1.4;           // гамма для pseudo-linearize
+            vfx.settings.bright_boost = 2.5;    // усиление яркости перед bloom
+            vfx.settings.threshold = 0.4;       // порог яркости (ниже = больше glow)
+            vfx.settings.knee = 0.2;            // мягкость порога
+            vfx.settings.sat_start = 0.5;       // начало десатурации (яркие → белый glow)
+            vfx.settings.sat_end = 1.0;         // полная десатурация
+            vfx.settings.desat_strength = 0.6;  // сила десатурации
+            vfx.settings.sample_scale = 1.0;    // радиус tent filter при upsample
+            vfx.settings.intensity = 0.2;       // финальная сила bloom
+            // Пост-обработка bloom-слоя (после blur, до наложения):
+            vfx.settings.bloom_gamma = 1.0;     // кривая затухания (>1 = только яркие пики, мягкое затухание)
+            vfx.settings.bloom_saturation = 1.2; // насыщенность bloom (>1 = цветной, <1 = белый)
+            vfx.enabled = true;
+            vg.renderer.vfx = Some(vfx);
+            println!("VFX bloom initialized");
+        }
+        Err(e) => {
+            eprintln!("VFX bloom init failed: {}", e);
+        }
+    }
+
     // Drop zone state
     let mut drop_zone = DropZone::new();
 
@@ -354,7 +383,7 @@ fn main() {
 
         // --- Gameboy palette demo ---
         {
-            let gb_pal = vg.terminal.palette_map.get("gameboy").copied();
+            let gb_pal = vg.terminal.palette_map.get("summer").copied();
             // Извлекаем цвета палитры заранее, чтобы не держать immutable borrow
             let gb_colors: Option<[Color; 4]> = gb_pal.and_then(|pk| {
                 let pal = vg.grids.assets.palette(pk)?;
@@ -454,12 +483,17 @@ fn main() {
         // PRE-DRAW (image buffers for shaders, etc)
         vg.render_offscreen(&mut rl, &thread, &render_list);
 
+        // VFX pass: scene → texture → bloom → output
+        let screen_w = rl.get_screen_width() as u32;
+        let screen_h = rl.get_screen_height() as u32;
+        vg.render_vfx(&mut rl, &thread, &render_list, screen_w, screen_h, Color::new(8, 8, 8, 255));
+
         // DRAW
         {
             let mut d = rl.begin_drawing(&thread);
             d.clear_background(Color::new(8, 8, 8, 255));
             puffin::profile_scope!("Offscreen Render");
-            vg.draw(&mut d, &render_list); // draw рисует дерево + применяет шейдеры к буферам (через фасад)
+            vg.draw(&mut d, &render_list);
             chrome.draw(&mut d);
             // d.draw_fps(10, 10);
         }

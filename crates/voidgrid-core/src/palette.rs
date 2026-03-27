@@ -1,14 +1,13 @@
 use std::collections::HashMap;
 use raylib::prelude::Color;
-use serde::{Serialize, Deserialize};
+use serde::Deserialize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PaletteColor {
     pub r: u8,
     pub g: u8,
     pub b: u8,
     pub a: u8,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
 }
 
@@ -16,20 +15,79 @@ impl PaletteColor {
     pub fn new(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a, name: None }
     }
-    
+
     pub fn named(name: impl Into<String>, r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a, name: Some(name.into()) }
     }
-    
+
     pub fn to_color(&self) -> Color {
         Color::new(self.r, self.g, self.b, self.a)
     }
+
+    pub fn to_hex(&self) -> String {
+        if self.a == 255 {
+            format!("#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
+        } else {
+            format!("#{:02X}{:02X}{:02X}{:02X}", self.r, self.g, self.b, self.a)
+        }
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+fn parse_hex(hex: &str) -> Result<(u8, u8, u8, u8), String> {
+    let hex = hex.strip_prefix('#').unwrap_or(hex);
+    match hex.len() {
+        6 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).map_err(|e| e.to_string())?;
+            let g = u8::from_str_radix(&hex[2..4], 16).map_err(|e| e.to_string())?;
+            let b = u8::from_str_radix(&hex[4..6], 16).map_err(|e| e.to_string())?;
+            Ok((r, g, b, 255))
+        }
+        8 => {
+            let r = u8::from_str_radix(&hex[0..2], 16).map_err(|e| e.to_string())?;
+            let g = u8::from_str_radix(&hex[2..4], 16).map_err(|e| e.to_string())?;
+            let b = u8::from_str_radix(&hex[4..6], 16).map_err(|e| e.to_string())?;
+            let a = u8::from_str_radix(&hex[6..8], 16).map_err(|e| e.to_string())?;
+            Ok((r, g, b, a))
+        }
+        _ => Err(format!("invalid hex color length: {}", hex.len())),
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum ColorEntry {
+    Short(String),
+    Named { hex: String, name: Option<String> },
+}
+
+impl ColorEntry {
+    fn into_palette_color(self) -> Result<PaletteColor, String> {
+        match self {
+            ColorEntry::Short(hex) => {
+                let (r, g, b, a) = parse_hex(&hex)?;
+                Ok(PaletteColor::new(r, g, b, a))
+            }
+            ColorEntry::Named { hex, name } => {
+                let (r, g, b, a) = parse_hex(&hex)?;
+                Ok(PaletteColor { r, g, b, a, name })
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct PaletteConfig {
     pub name: String,
-    pub colors: Vec<PaletteColor>,
+    colors: Vec<ColorEntry>,
+}
+
+impl PaletteConfig {
+    pub fn into_colors(self) -> Result<(String, Vec<PaletteColor>), String> {
+        let colors = self.colors.into_iter()
+            .map(|e| e.into_palette_color())
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((self.name, colors))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -48,12 +106,13 @@ impl Palette {
         }
     }
     
-    pub fn from_config(config: PaletteConfig) -> Self {
-        let mut palette = Self::new(config.name);
-        for color in config.colors {
+    pub fn from_config(config: PaletteConfig) -> Result<Self, String> {
+        let (name, colors) = config.into_colors()?;
+        let mut palette = Self::new(name);
+        for color in colors {
             palette.add_color(color);
         }
-        palette
+        Ok(palette)
     }
     
     pub fn add_color(&mut self, color: PaletteColor) -> usize {
@@ -105,11 +164,18 @@ impl Palette {
         self.colors.is_empty()
     }
     
-    pub fn to_config(&self) -> PaletteConfig {
-        PaletteConfig {
-            name: self.name.clone(),
-            colors: self.colors.clone(),
+    pub fn to_toml(&self) -> String {
+        let mut out = format!("name = \"{}\"\n\ncolors = [\n", self.name);
+        for color in &self.colors {
+            let hex = color.to_hex();
+            if let Some(ref name) = color.name {
+                out.push_str(&format!("    {{ hex = \"{}\", name = \"{}\" }},\n", hex, name));
+            } else {
+                out.push_str(&format!("    \"{}\",\n", hex));
+            }
         }
+        out.push_str("]\n");
+        out
     }
     
     pub fn cycle(&mut self, start: usize, end: usize) {

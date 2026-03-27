@@ -67,7 +67,7 @@ pub fn load_palette(
 ) -> Result<Palette, Box<dyn std::error::Error>> {
     let content = provider.read_string(path)?;
     let config: PaletteConfig = parse_config(path, &content)?;
-    Ok(Palette::from_config(config))
+    Ok(Palette::from_config(config)?)
 }
 
 pub fn load_shader(
