@@ -15,7 +15,6 @@ use crate::grids::Grids;
 use crate::types::{BufferKey, ShaderKey, Blend, GlyphsetKey};
 use crate::types::Rotation;
 use crate::hierarchy::RenderItem;
-use crate::resource_pack::ResourceProvider;
 
 // ============================================================================
 // Safe wrappers for raylib FFI
@@ -337,15 +336,14 @@ impl Renderer {
         }
     }
 
+    const MASK_SHADER: &'static str = include_str!("shaders/mask.fs");
+
     pub fn load_mask_shader(
         &mut self,
-        provider: &mut dyn ResourceProvider,
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
-        shader_path: &str,
     ) -> Result<(), String> {
-        let code = provider.read_string(shader_path).map_err(|e| e.to_string())?;
-        let shader = rl.load_shader_from_memory(thread, None, Some(&code));
+        let shader = rl.load_shader_from_memory(thread, None, Some(Self::MASK_SHADER));
 
         self.loc_mask_tex = shader.get_shader_location("texture1");
         self.loc_mask_src_rect = shader.get_shader_location("maskSrcRect");

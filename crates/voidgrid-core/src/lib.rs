@@ -52,12 +52,10 @@ impl VoidGrid {
     /// Р РµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РІС‹Р·С‹РІР°С‚СЊ СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ СЃРѕР·РґР°РЅРёСЏ
     pub fn init(
         &mut self,
-        provider: &mut dyn crate::resource_pack::ResourceProvider,
         rl: &mut RaylibHandle,
         thread: &RaylibThread
     ) {
-        // Р—Р°РіСЂСѓР¶Р°РµРј РІСЃС‚СЂРѕРµРЅРЅС‹Р№ С€РµР№РґРµСЂ РјР°СЃРєРё (РїРѕРєР° РёР· С„Р°Р№Р»Р°)
-        if let Err(e) = self.renderer.load_mask_shader(provider, rl, thread, "assets/mask.fs") {
+        if let Err(e) = self.renderer.load_mask_shader(rl, thread) {
             eprintln!("VoidGrid Warning: Failed to load mask shader: {}", e);
         }
     }

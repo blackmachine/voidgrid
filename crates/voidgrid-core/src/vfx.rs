@@ -4,7 +4,6 @@
 //! Can be removed without affecting the core renderer.
 
 use raylib::prelude::*;
-use crate::resource_pack::ResourceProvider;
 
 const BLOOM_MAX_MIPS: usize = 6;
 
@@ -105,16 +104,15 @@ pub struct VfxPipeline {
 }
 
 impl VfxPipeline {
+    const BLOOM_SHADER: &'static str = include_str!("shaders/vfx_bloom.fs");
+
     pub fn new(
-        provider: &mut dyn ResourceProvider,
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
         width: u32,
         height: u32,
     ) -> Result<Self, String> {
-        let code = provider.read_string("assets/vfx_bloom.fs")
-            .map_err(|e| format!("Failed to read vfx_bloom.fs: {}", e))?;
-        let shader = rl.load_shader_from_memory(thread, None, Some(&code));
+        let shader = rl.load_shader_from_memory(thread, None, Some(Self::BLOOM_SHADER));
         let locs = UniformLocs::resolve(&shader);
 
         let mip_chain = create_mip_chain(rl, thread, width, height)?;

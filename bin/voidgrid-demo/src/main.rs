@@ -73,7 +73,7 @@ fn main() {
 
 
     // Инициализируем (загрузка шейдеров и т.д.)
-    vg.init(&mut provider, &mut rl, &thread);
+    vg.init(&mut rl, &thread);
 
     // Инициализируем иерархию
     let mut hierarchy = Hierarchy::new();
@@ -115,7 +115,7 @@ fn main() {
     // ========================================================================
     // Инициализация VFX пайплайна — загружает шейдер vfx_bloom.fs и
     // создаёт цепочку mip-текстур для downsample/upsample.
-    match voidgrid::vfx::VfxPipeline::new(&mut provider, &mut rl, &thread, window_w, window_h) {
+    match voidgrid::vfx::VfxPipeline::new(&mut rl, &thread, window_w, window_h) {
         Ok(mut vfx) => {
             // Настройки псевдо-линеаризации и блюма — крутить по вкусу:
             vfx.settings.gamma = 1.4;           // гамма для pseudo-linearize
@@ -129,7 +129,7 @@ fn main() {
             vfx.settings.intensity = 0.2;       // финальная сила bloom
             // Пост-обработка bloom-слоя (после blur, до наложения):
             vfx.settings.bloom_gamma = 1.0;     // кривая затухания (>1 = только яркие пики, мягкое затухание)
-            vfx.settings.bloom_saturation = 1.2; // насыщенность bloom (>1 = цветной, <1 = белый)
+            vfx.settings.bloom_saturation = 1.5; // насыщенность bloom (>1 = цветной, <1 = белый)
             vfx.enabled = true;
             vg.renderer.vfx = Some(vfx);
             println!("VFX bloom initialized");
